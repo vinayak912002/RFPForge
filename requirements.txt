@@ -1,3 +1,6 @@
+pandas==2.2.2
+PyPDF2==3.0.1
+openpyxl==3.1.2
 langchain-community==0.4.1
 pypdf==6.7.1
 docx2txt==0.9
