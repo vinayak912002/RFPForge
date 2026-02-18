@@ -1,0 +1,100 @@
+import sys
+from pathlib import Path
+
+# Add workspace root to Python path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from langchain_core.documents import Document
+from app.knowledge_engine.chunking import (
+    clean_text,
+    compute_structure_score,
+    structured_chunking,
+    semi_structured_chunking,
+    unstructured_chunking,
+)
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+
+# --------------------------------------------------
+# 1️⃣ Sample Input (paste your RFP text here)
+# --------------------------------------------------
+
+sample_text = """
+page_content='For official use only 
+
+mrfp/app/24.01.2014 xi
+GLOSSARY
+
+APP      As defined in Clause 1.1.2
+Associate      As defined in Clause 2.1.12
+Bank Guarantee     As defined in Clause 2.19.1
+Bid(s)       As defined in Clause 1.2.2
+Bidders      As defined in Clause 1.2.2
+Bidding Documents    As defined in Clause 1.1.7
+Bid Due Date      As defined in Clause 1.1.7
+Bidding Process     As defined in Clause 1.2.1
+Bid Security      As defined in Clause 1.2.4
+Bid Stage      As defined in Clause 1.2.1
+Contract      As defined in Clause 1.1.5
+FOO      As defined in Clause 1.1.1
+Demand Draft     As defined in Clause 2.19.2
+Government      Government of *****
+Lowest Bidder     As defined in Clause 1.2.6
+LOA      As defined in Clause 3.3.5
+PPP      Public Private Partnership
+Project      As defined in Clause 1.1.1
+Re. or Rs. or INR     Indian Rupee
+RFP or Request for Proposals   As defined in the Disclaimer
+RFQ      As defined in Clause 2.1.2
+Selected Bidder     As defined in Clause 3.3.1
+Supplier      As defined in Clause 1.1.2
+Tariff      As defined in Clause 1.2.6
+Utility      As defined in Clause 1.1.1
+
+The words and expressions beginning with capital letters and defined in this document shall, unless
+repugnant to the context, have the meaning ascribed thereto herein above. The words and expressions
+beginning with capital letters and not defined herein, but defined in the RFQ, shall, unless repugnant to the
+context, have the meaning ascribed thereto therein.' metadata={'producer': 'Microsoft® Word 2010', 'creator': 'Microsoft® Word 2010', 'creationdate': '2014-02-25T12:46:45+05:30', 'title': 'RFP  DOCUMENT', 'author': 'gh', 'moddate': '2014-02-25T12:46:45+05:30', 'source': 'E:\\vinayak\\RFPForge\\data\\knowledge_docs\\RFP_MAPP10022014.pdf', 'total_pages': 49, 'page': 10, 'page_label': '11'}
+"""
+
+metadata = {
+    "source": "test.pdf",
+    "page": 1,
+}
+
+
+# --------------------------------------------------
+# 2️⃣ Simulate Pipeline Logic
+# --------------------------------------------------
+
+cleaned = clean_text(sample_text)
+score = compute_structure_score(cleaned)
+
+print(f"\nStructure Score: {score}\n")
+
+text_splitter = RecursiveCharacterTextSplitter(
+    chunk_size=300,
+    chunk_overlap=50,
+    separators=["\n\n", "\n", ".", " ", ""],
+)
+
+if score > 20:
+    chunks = structured_chunking(cleaned, metadata, text_splitter)
+elif score > 8:
+    chunks = semi_structured_chunking(cleaned, metadata, text_splitter)
+else:
+    chunks = unstructured_chunking(cleaned, metadata, text_splitter)
+
+
+# --------------------------------------------------
+# 3️⃣ Print Output
+# --------------------------------------------------
+
+print(f"Total Chunks Created: {len(chunks)}\n")
+
+for i, chunk in enumerate(chunks):
+    print(f"--- Chunk {i+1} ---")
+    print("Content:")
+    print(chunk.page_content)
+    print("Metadata:")
+    print(chunk.metadata)
+    print("\n")
