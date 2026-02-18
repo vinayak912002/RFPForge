@@ -2,3 +2,5 @@
 .venv
 venv 
 *.pdf 
+*.docx 
+*.tmp 
