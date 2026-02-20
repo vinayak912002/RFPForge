@@ -1,38 +1,39 @@
-  # Streamlit demo
 import streamlit as st
 import datetime
 import uuid
 import pandas as pd
+import time
 from typing import List
 from dataclasses import dataclass
 from docx import Document
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 
-# =============================================================================
-# SAFE SESSION STATE HANDLING
-# =============================================================================
-def get_rfp_state():
-    if "rfp_data" not in st.session_state:
-        st.session_state["rfp_data"] = {
-            "rfp_sessions": {},
-            "current_rfp_id": None,
-            "edit_mode": None
-        }
-    return st.session_state["rfp_data"]
+# -----------------------------
+# PAGE CONFIG (MUST BE FIRST)
+# -----------------------------
+st.set_page_config(page_title="RFPilot", layout="wide")
 
-rfp_data = get_rfp_state()
+# -----------------------------
+# SESSION STATE INIT
+# -----------------------------
+if "rfp_data" not in st.session_state:
+    st.session_state["rfp_data"] = {
+        "rfp_sessions": {},
+        "current_rfp_id": None,
+    }
 
-st.set_page_config(page_title="AI RFP Tool", layout="wide")
+rfp_data = st.session_state["rfp_data"]
 
-# =============================================================================
+# -----------------------------
 # DATA CLASSES
-# =============================================================================
+# -----------------------------
 @dataclass
 class Source:
     doc_type: str
     filename: str
     section: str
     snippet: str
+    full_chunk: str
 
 @dataclass
 class Draft:
@@ -40,32 +41,52 @@ class Draft:
     sources: List[Source]
     version: int
 
-# =============================================================================
-# MOCK AI GENERATOR
-# =============================================================================
-def generate_draft(question: str, version: int = 1):
-    sources = [
-        Source(
-            "knowledge",
-            "Security_Policy_v2.pdf",
-            "Encryption",
-            "AES-256 encryption for data at rest"
-        )
-    ]
-
-    answer = f"""
+# -----------------------------
+# STREAMING GENERATOR
+# -----------------------------
+def stream_generate(question):
+    full_text = f"""
 ### Response to: "{question}"
 
 We use AES-256 encryption for all stored data.
 Backups are encrypted using secure key management systems.
+TLS 1.3 is enforced in transit.
+SOC2 Type II compliant.
 """
 
-    return Draft(content=answer, sources=sources, version=version)
+    placeholder = st.empty()
+    streamed_text = ""
 
-# =============================================================================
-# QUESTION EXTRACTION
-# =============================================================================
-def extract_questions_from_text(text):
+    for char in full_text:
+        streamed_text += char
+        placeholder.markdown(streamed_text)
+        time.sleep(0.005)
+
+    return streamed_text
+
+
+def generate_sources():
+    return [
+        Source(
+            "knowledge",
+            "Security_Policy_v2.pdf",
+            "Encryption",
+            "AES-256 encryption for data at rest",
+            "Full chunk: We use AES-256 encryption with CMK management and key rotation."
+        ),
+        Source(
+            "knowledge",
+            "Compliance_Doc.pdf",
+            "Certifications",
+            "SOC2 Type II Certified",
+            "Full chunk: Our organization maintains SOC2 Type II certification with annual audits."
+        )
+    ]
+
+# -----------------------------
+# FILE PARSING
+# -----------------------------
+def extract_questions(text):
     lines = text.split("\n")
     questions = []
     for line in lines:
@@ -77,18 +98,21 @@ def extract_questions_from_text(text):
             questions.append(line)
     return questions
 
+
 def parse_docx(file):
     doc = Document(file)
-    full_text = "\n".join([p.text for p in doc.paragraphs])
-    return extract_questions_from_text(full_text)
+    text = "\n".join([p.text for p in doc.paragraphs])
+    return extract_questions(text)
+
 
 def parse_pdf(file):
     reader = PdfReader(file)
     text = ""
     for page in reader.pages:
         if page.extract_text():
-            text += page.extract_text() + "\n"
-    return extract_questions_from_text(text)
+            text += page.extract_text()
+    return extract_questions(text)
+
 
 def parse_excel(file):
     df = pd.read_excel(file)
@@ -99,47 +123,40 @@ def parse_excel(file):
                 questions.append(val)
     return questions
 
-# =============================================================================
+# -----------------------------
 # SIDEBAR
-# =============================================================================
+# -----------------------------
 with st.sidebar:
-    st.title("🏢 RFP Workspaces")
-
-    st.markdown("### ➕ Create New RFP")
+    st.title("🚀 RFPilot")
 
     client = st.text_input("Client Name")
     deadline = st.date_input("Deadline", value=datetime.date.today())
 
-    if st.button("CREATE RFP", type="primary"):
-        if client.strip():
-            rfp_id = str(uuid.uuid4())[:8].upper()
-
+    if st.button("Create RFP", type="primary"):
+        if client:
+            rfp_id = str(uuid.uuid4())[:8]
             rfp_data["rfp_sessions"][rfp_id] = {
                 "client": client,
                 "deadline": str(deadline),
                 "questions": {}
             }
-
             rfp_data["current_rfp_id"] = rfp_id
             st.success("RFP Created")
-        else:
-            st.warning("Enter client name")
 
-    st.markdown("### 📋 Existing RFPs")
-
+    st.markdown("### Existing RFPs")
     for r_id, info in rfp_data["rfp_sessions"].items():
-        if st.button(info["client"], key=f"select_{r_id}"):
+        if st.button(info["client"], key=r_id):
             rfp_data["current_rfp_id"] = r_id
 
-# =============================================================================
+# -----------------------------
 # MAIN
-# =============================================================================
-st.title("✨ AI-Powered RFP Response Tool")
+# -----------------------------
+st.title("AI-Powered RFP Automation")
 
 rfp_id = rfp_data.get("current_rfp_id")
 
 if not rfp_id:
-    st.info("👈 Create or select an RFP from sidebar")
+    st.info("Create or select an RFP from sidebar.")
 else:
     rfp = rfp_data["rfp_sessions"][rfp_id]
 
@@ -149,96 +166,83 @@ else:
 
     st.markdown("---")
 
-    # ================= Upload =================
-    st.header("📤 Upload RFP Document")
-
-    uploaded_file = st.file_uploader(
-        "Upload PDF, DOCX or Excel",
-        type=["pdf", "docx", "xlsx"]
-    )
+    # FILE UPLOAD
+    uploaded_file = st.file_uploader("Upload RFP (PDF, DOCX, XLSX)")
 
     if uploaded_file:
-        st.info("Extracting questions...")
-
         questions = []
 
-        if uploaded_file.type == "application/pdf":
+        if uploaded_file.name.endswith(".pdf"):
             questions = parse_pdf(uploaded_file)
-        elif uploaded_file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+        elif uploaded_file.name.endswith(".docx"):
             questions = parse_docx(uploaded_file)
-        elif uploaded_file.type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+        elif uploaded_file.name.endswith(".xlsx"):
             questions = parse_excel(uploaded_file)
 
-        if questions:
-            for q in questions:
-                q_id = str(uuid.uuid4())[:8].upper()
-                rfp["questions"][q_id] = {
-                    "question": q,
-                    "drafts": []
-                }
-            st.success(f"{len(questions)} questions extracted!")
-        else:
-            st.warning("No questions detected.")
+        for q in questions:
+            q_id = str(uuid.uuid4())[:8]
+            rfp["questions"][q_id] = {"question": q, "drafts": []}
+
+        st.success(f"{len(questions)} questions extracted.")
 
     st.markdown("---")
-
-    # ================= Questions =================
-    st.header("📋 Questions")
+    st.header("Questions")
 
     for q_id, q_data in rfp["questions"].items():
 
-        with st.expander(q_data["question"][:100]):
+        with st.expander(q_data["question"][:120]):
 
             # Generate draft
             if not q_data["drafts"]:
-                if st.button("Generate Draft", key=f"gen_{q_id}"):
-                    draft = generate_draft(q_data["question"], 1)
+                if st.button("Generate Response", key=f"gen_{q_id}"):
+                    content = stream_generate(q_data["question"])
+                    draft = Draft(
+                        content=content,
+                        sources=generate_sources(),
+                        version=1
+                    )
                     q_data["drafts"].append(draft)
 
             # If draft exists
             if q_data["drafts"]:
-
                 latest = q_data["drafts"][-1]
 
-                st.markdown(f"### Draft v{latest.version}")
-                st.markdown(latest.content)
+                edited = st.text_area(
+                    "Draft",
+                    value=latest.content,
+                    height=250,
+                    key=f"text_{q_id}"
+                )
 
                 col1, col2 = st.columns(2)
 
-                # Edit
-                if col1.button("✏️ Edit", key=f"edit_{q_id}"):
-                    rfp_data["edit_mode"] = q_id
+                if col1.button("💾 Save", key=f"save_{q_id}"):
+                    latest.content = edited
+                    st.success("Saved successfully.")
 
-                # Regenerate
                 if col2.button("🔄 Regenerate", key=f"regen_{q_id}"):
-                    new_version = latest.version + 1
-                    new_draft = generate_draft(q_data["question"], new_version)
+                    content = stream_generate(q_data["question"])
+                    new_draft = Draft(
+                        content=content,
+                        sources=generate_sources(),
+                        version=latest.version + 1
+                    )
                     q_data["drafts"].append(new_draft)
 
-                # Edit mode
-                if rfp_data.get("edit_mode") == q_id:
-                    edited_text = st.text_area(
-                        "Edit Draft",
-                        value=latest.content,
-                        key=f"edit_text_{q_id}"
-                    )
+                # -----------------------------
+                # SOURCES PANEL (NO NESTING)
+                # -----------------------------
+                st.markdown("### 📚 Sources")
 
-                    save_col, cancel_col = st.columns(2)
+                for i, src in enumerate(latest.sources):
 
-                    if save_col.button("💾 Save", key=f"save_{q_id}"):
-                        latest.content = edited_text
-                        rfp_data["edit_mode"] = None
+                    st.markdown(f"**{src.filename} – {src.section}**")
+                    st.write(src.snippet)
 
-                    if cancel_col.button("❌ Cancel", key=f"cancel_{q_id}"):
-                        rfp_data["edit_mode"] = None
+                    if st.button("View Full Chunk", key=f"chunk_{q_id}_{i}"):
+                        st.info(src.full_chunk)
 
-                # Sources
-                st.markdown("#### 📚 Sources")
-                for src in latest.sources:
-                    st.markdown(f"• {src.filename} — {src.snippet}")
+                    st.markdown("---")
 
     st.markdown("---")
-    st.caption("✅ Upload • Auto Extract • Generate • Edit • Regenerate • Fully Stable")
-
-
-
+    st.caption("Streaming • Editable • Versioned • Expandable • Stable")
