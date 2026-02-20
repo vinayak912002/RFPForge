@@ -9,7 +9,6 @@ Supports:
 Provides:
 - Single file loading
 - Directory loading
-- Optional text splitting
 - Error handling and logging
 """
 
