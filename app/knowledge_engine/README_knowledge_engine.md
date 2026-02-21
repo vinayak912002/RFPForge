@@ -1,3 +1,51 @@
+## Loading 
+
+### Document Loader Utility
+
+The Document Loader Utility is a modular ingestion component designed for use in Retrieval-Augmented Generation (RAG) systems. It provides structured loading of supported document formats and converts them into LangChain-compatible Document objects.
+
+This module is part of the knowledge ingestion layer in RFPForge and handles file-type detection, loader selection, error handling, and structured output generation.
+
+### Purpose
+
+Before embeddings and retrieval can occur in a RAG pipeline, raw documents must be parsed into structured text objects. This utility automates that process by:
+
+- Detecting file type automatically
+- Selecting the appropriate loader
+- Handling errors gracefully
+- Returning standardized Document objects
+- Supporting both single-file and directory ingestion
+
+It ensures clean separation between file parsing and downstream embedding logic.
+
+### Supported File Types
+
+The module currently supports:
+- PDF (.pdf) using PyPDFLoader
+- DOCX (.docx) using Docx2txtLoader
+- DOC (.doc) using UnstructuredWordDocumentLoader
+
+Loader selection is handled dynamically through a factory-style function.
+
+### Architecture Overview
+
+The design follows clean engineering principles:
+- Single Responsibility Principle
+- Factory Pattern for loader selection
+- Clear separation of concerns
+- Structured logging
+- Explicit error handling
+
+Core responsibilities are separated into:
+
+- get_loader() – Selects the correct loader
+- load_document() – Loads a single file
+- load_directory() – Loads all supported files in a folder
+This structure makes the module easy to extend and test.
+
+
+
+
 ## Chunking
 
 We are handling the chunking of the loaded RFPs in this step the output of this step is small peices of the RFP document so that each chunk is semantically isolated.  
