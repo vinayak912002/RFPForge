@@ -89,15 +89,20 @@ class RetrievalService:
         filter_dict: Dict[str, Any],
     ) -> List[Dict[str, Any]]:
 
-        query_embedding = self.embedding_service.embed_query(query)
+        try:
+            query_embedding = self.embedding_service.embed_query(query)
 
-        docs_and_scores = self.vector_store_service.similarity_search(
-            query_embedding=query_embedding,
-            k=top_k,
-            filter=filter_dict if filter_dict else None,
-        )
+            docs_and_scores = self.vector_store_service.similarity_search(
+                query_embedding=query_embedding,
+                k=top_k,
+                filter=filter_dict if filter_dict else None,
+            )
 
-        return self._post_process(docs_and_scores)
+            return self._post_process(docs_and_scores)
+
+        except Exception as e:
+            logger.error(f"Single query search failed: {str(e)}")
+            return []
 
     def _handle_comparison_query(
         self,
@@ -114,40 +119,43 @@ class RetrievalService:
             if not cleaned:
                 continue
 
-            embedding = self.embedding_service.embed_query(cleaned)
+            try:
+                embedding = self.embedding_service.embed_query(cleaned)
 
-            docs_and_scores = self.vector_store_service.similarity_search(
-                query_embedding=embedding,
-                k=top_k,
-                filter=filter_dict if filter_dict else None,
-            )
+                docs_and_scores = self.vector_store_service.similarity_search(
+                    query_embedding=embedding,
+                    k=top_k,
+                    filter=filter_dict if filter_dict else None,
+                )
 
-            processed = self._post_process(docs_and_scores)
-            aggregated_results.extend(processed)
+                processed = self._post_process(docs_and_scores)
+                aggregated_results.extend(processed)
 
-        # Deduplicate AFTER loop
-        
+            except Exception as e:
+                logger.error(
+                    f"Comparison search failed for part '{cleaned}': {str(e)}"
+                )
+                continue
+
+        # Deduplicate using (source, content)
         unique_map = {
             (
                 r.get("metadata", {}).get("source"),
-                r.get("content")
+                r.get("content"),
             ): r
             for r in aggregated_results
-}
+        }
 
-        # Convert back to list
         deduped_results = list(unique_map.values())
 
-        # Sort by score descending
+        # Sort by score (descending)
         deduped_results = sorted(
             deduped_results,
             key=lambda x: x["score"],
-            reverse=True
+            reverse=True,
         )
 
         return deduped_results
-
-        return list(unique_map.values())
 
     # ==============================================
     # Metadata Filter Building
@@ -168,7 +176,7 @@ class RetrievalService:
         if section:
             filter_dict["section"] = section.strip().lower()
 
-        if recency_days:
+        if recency_days is not None:
             cutoff = datetime.utcnow() - timedelta(days=recency_days)
             filter_dict["created_at"] = {
                 "$gte": cutoff.isoformat()
@@ -189,6 +197,7 @@ class RetrievalService:
 
         for doc, score in docs_and_scores:
 
+            # Assume vector store returns normalized similarity
             similarity = score
 
             if similarity < self.score_threshold:
@@ -199,6 +208,13 @@ class RetrievalService:
                 "score": similarity,
                 "metadata": doc.metadata,
             })
+
+        # Sort results by score descending
+        results = sorted(
+            results,
+            key=lambda x: x["score"],
+            reverse=True,
+        )
 
         return results
 
