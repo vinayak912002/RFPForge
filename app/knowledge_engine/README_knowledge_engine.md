@@ -247,3 +247,64 @@ The final output of the embedding pipeline is:
 * Operational metrics for observability
 
 These embeddings are ready to be ingested into a vector store or retrieval index for semantic search and RAG-based question answering.
+
+
+
+
+## Retrieval & Reranking Module
+
+### Overview
+
+The `RetrievalService` implements a production-grade semantic retrieval pipeline with optional cross-encoder reranking. It is designed to be scalable, testable, and production-safe.
+
+The pipeline performs:
+
+1. Query embedding
+2. Vector similarity search
+3. Score threshold filtering
+4. Optional cross-encoder reranking (BGE)
+5. Structured response formatting
+
+---
+
+### Architecture Flow
+
+User Query  
+↓  
+Embedding Service  
+↓  
+Vector Store (Similarity Search)  
+↓  
+Score Threshold Filtering  
+↓  
+(Optional) Cross-Encoder Reranking  
+↓  
+Final Ranked Results  
+
+---
+
+### Key Features
+
+- Semantic search using embeddings
+- Optional BGE cross-encoder reranking
+- Metadata-based filtering (doc_type, section, recency)
+- Score threshold control
+- Structured logging with latency tracking
+- Dependency injection for test isolation
+- Thread-safe lazy model loading
+- Graceful fallback if reranker fails
+
+---
+
+### Configuration
+
+```python
+RetrievalService(
+    embedding_service,
+    vector_store_service,
+    score_threshold=0.0,
+    rerank=True,
+    rerank_top_k=5,
+    max_latency_ms=2000,
+    reranker_cls=None,  # Inject custom reranker (used in tests)
+)
