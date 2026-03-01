@@ -2,6 +2,8 @@ import logging
 import time
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
+from llama_index.postprocessor.flag_embedding_reranker import FlagEmbeddingReranker
+from llama_index.schema import NodeWithScore, QueryBundle, TextNode
 
 
 # ==============================================
@@ -241,3 +243,29 @@ class RetrievalService:
         }
 
         logger.info(f"RETRIEVAL_LOG | {log_payload}")
+
+    def _handle_reranker():
+        # Placeholder for future reranking logic
+        reranker=FlagEmbeddingReranker(
+            top_k=5,
+            model="BAAI/bge-large-en-v1.5",
+            use_fp16=False
+        )
+
+        documents=[
+            "Retrieval-Augmented Generation (RAG) combines retrieval and generation for NLP tasks.",
+            "Generative Pre-trained Transformer (GPT) is a language generation model.",
+            "RAG uses a retriever to fetch relevant documents and a generator to produce answers.",
+            "BERT is a model designed for understanding the context of a word in a sentence."
+        ]
+        nodes =[NodeWithScore(node=TextNode(text=doc)) for doc in documents]
+        query ="What is RAG in NLP? "
+
+        query_bundle = QueryBundle(query_str=query)
+        ranked_nodes =reranker._postprocess_nodes(query_bundle, nodes)
+        for node in ranked_nodes:
+            print(node.node.get_content(), "--> Score:", node.score)
+
+        
+
+        
