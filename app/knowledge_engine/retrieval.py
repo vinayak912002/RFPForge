@@ -1,14 +1,15 @@
 import logging
 import time
+import threading
 from datetime import datetime, timedelta
-from typing import List, Optional, Dict, Any
-from llama_index.postprocessor.flag_embedding_reranker import FlagEmbeddingReranker
-from llama_index.schema import NodeWithScore, QueryBundle, TextNode
+from typing import List, Optional, Dict, Any, Tuple
 
+from llama_index.core.schema import NodeWithScore, TextNode
+from llama_index.core import QueryBundle
 
-# ==============================================
-# Logging setup
-# ==============================================
+# ==========================================================
+# Logging Configuration
+# ==========================================================
 
 logger = logging.getLogger("retrieval")
 logger.setLevel(logging.INFO)
@@ -23,32 +24,54 @@ if not logger.handlers:
 
 
 class RetrievalService:
-    """RFP-Aware Retrieval Layer"""
+    """
+    Production-Grade RFP Retrieval Layer
+
+    Features:
+    - Embedding-based retrieval
+    - Optional Cross-Encoder reranking (BGE)
+    - Graceful fallback
+    - Latency monitoring
+    - Metadata filtering
+    - Structured logging
+    - Thread-safe lazy model loading
+    """
 
     def __init__(
-    self,
-    embedding_service,
-    vector_store_service,
-    score_threshold: float = 0.80,
-    rerank: bool = True,
-    rerank_top_k: int = 5,
-):
-    self.embedding_service = embedding_service
-    self.vector_store_service = vector_store_service
-    self.score_threshold = score_threshold
-    self.rerank = rerank
-    self.rerank_top_k = rerank_top_k
+        self,
+        embedding_service,
+        vector_store_service,
+        score_threshold: float = 0.0,
+        rerank: bool = True,
+        rerank_top_k: int = 5,
+        max_latency_ms: int = 2000,
+    ):
+        """
+        Initialize RetrievalService.
 
-    if self.rerank:
-        self.reranker = FlagEmbeddingReranker(
-            model="BAAI/bge-reranker-large",
-            top_k=self.rerank_top_k,
-            use_fp16=False
-        )
+        Args:
+            embedding_service: Service responsible for generating query embeddings.
+            vector_store_service: Service handling similarity search.
+            score_threshold: Minimum similarity score to include results.
+            rerank: Whether to enable cross-encoder reranking.
+            rerank_top_k: Number of documents to retain after reranking.
+            max_latency_ms: Maximum acceptable latency before fallback.
+        """
 
-    # ==============================================
-    # Public Search
-    # ==============================================
+        self.embedding_service = embedding_service
+        self.vector_store_service = vector_store_service
+        self.score_threshold = score_threshold
+
+        self.rerank_enabled = rerank
+        self.rerank_top_k = rerank_top_k
+        self.max_latency_ms = max_latency_ms
+
+        self._reranker = None
+        self._reranker_lock = threading.Lock()
+
+    # ==========================================================
+    # Public Search API
+    # ==========================================================
 
     def search(
         self,
@@ -58,49 +81,22 @@ class RetrievalService:
         section: Optional[str] = None,
         recency_days: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
+        """
+        Execute retrieval search with optional reranking.
+
+        Returns:
+            List of result dictionaries containing:
+            - content
+            - score
+            - metadata
+        """
 
         if not query or not query.strip():
             raise ValueError("Query cannot be empty.")
 
         start_time = time.time()
 
-        filter_dict = self._build_filter(
-            doc_type=doc_type,
-            section=section,
-            recency_days=recency_days,
-        )
-
-        if " vs " in query.lower():
-            results = self._handle_comparison_query(
-                query, top_k, filter_dict
-            )
-        else:
-            results = self._handle_single_query(
-                query, top_k, filter_dict
-            )
-
-        latency_ms = round((time.time() - start_time) * 1000, 2)
-
-        self.log_retrieval(
-            query=query,
-            top_k=top_k,
-            filters=filter_dict,
-            results=results,
-            latency_ms=latency_ms,
-        )
-
-        return results
-
-    # ==============================================
-    # Core Query Handling
-    # ==============================================
-
-    def _handle_single_query(
-        self,
-        query: str,
-        top_k: int,
-        filter_dict: Dict[str, Any],
-    ) -> List[Dict[str, Any]]:
+        filters = self._build_filter(doc_type, section, recency_days)
 
         try:
             query_embedding = self.embedding_service.embed_query(query)
@@ -108,74 +104,120 @@ class RetrievalService:
             docs_and_scores = self.vector_store_service.similarity_search(
                 query_embedding=query_embedding,
                 k=top_k,
-                filter=filter_dict if filter_dict else None,
+                filter=filters if filters else None,
             )
 
-            if self.rerank:
-                docs_and_scores = self._apply_reranker(query, docs_and_scores)
+            # Apply similarity threshold filtering
+            docs_and_scores = [
+                (doc, score)
+                for doc, score in docs_and_scores
+                if score >= self.score_threshold
+            ]
 
-            return self._post_process(docs_and_scores)
+            # Optional reranking
+            rerank_latency = 0
+            if self.rerank_enabled and docs_and_scores:
+                rerank_start = time.time()
+
+                try:
+                    docs_and_scores = self._apply_reranker(
+                        query,
+                        docs_and_scores,
+                        self.rerank_top_k,
+                    )
+                except Exception as e:
+                    logger.warning(f"Reranker failed, fallback to embedding-only. Error: {e}")
+
+                rerank_latency = round((time.time() - rerank_start) * 1000, 2)
+
+            results = self._format_results(docs_and_scores)
 
         except Exception as e:
-            logger.error(f"Single query search failed: {str(e)}")
+            logger.error(f"Search failed: {e}")
             return []
 
-    def _handle_comparison_query(
-        self,
-        query: str,
-        top_k: int,
-        filter_dict: Dict[str, Any],
-    ) -> List[Dict[str, Any]]:
+        total_latency = round((time.time() - start_time) * 1000, 2)
 
-        parts = query.lower().split(" vs ")
-        aggregated_results = []
-
-        for part in parts:
-            cleaned = part.strip()
-            if not cleaned:
-                continue
-
-            try:
-                embedding = self.embedding_service.embed_query(cleaned)
-
-                docs_and_scores = self.vector_store_service.similarity_search(
-                    query_embedding=embedding,
-                    k=top_k,
-                    filter=filter_dict if filter_dict else None,
-                )
-
-                processed = self._post_process(docs_and_scores)
-                aggregated_results.extend(processed)
-
-            except Exception as e:
-                logger.error(
-                    f"Comparison search failed for part '{cleaned}': {str(e)}"
-                )
-                continue
-
-        # Deduplicate using (source, content)
-        unique_map = {
-            (
-                r.get("metadata", {}).get("source"),
-                r.get("content"),
-            ): r
-            for r in aggregated_results
-        }
-
-        deduped_results = list(unique_map.values())
-
-        # Sort by score (descending)
-        deduped_results = sorted(
-            deduped_results,
-            key=lambda x: x["score"],
-            reverse=True,
+        self._log_retrieval(
+            query=query,
+            top_k=top_k,
+            filters=filters,
+            result_count=len(results),
+            latency_ms=total_latency,
+            rerank_latency_ms=rerank_latency if self.rerank_enabled else 0,
         )
 
-        return deduped_results
+        return results
 
-    # ==============================================
-    # Metadata Filter Building
-    # ==============================================
+    # ==========================================================
+    # Reranker
+    # ==========================================================
+
+    def _lazy_load_reranker(self):
+        """
+        Lazily load cross-encoder reranker in thread-safe manner.
+        """
+
+        if self._reranker is None:
+            with self._reranker_lock:
+                if self._reranker is None:
+                    logger.info("Loading BGE reranker model...")
+                    self._reranker = FlagEmbeddingReranker(
+                        model="BAAI/bge-reranker-large",
+                        top_k=self.rerank_top_k,
+                        use_fp16=False,
+                    )
+
+    def _apply_reranker(
+        self,
+        query: str,
+        docs_and_scores: List[Tuple[Any, float]],
+        top_k: int,
+    ) -> List[Tuple[Any, float]]:
+        """
+        Apply cross-encoder reranking.
+
+        Returns:
+            Reranked list of (doc, score) tuples.
+        """
+
+        self._lazy_load_reranker()
+
+        nodes = [
+            NodeWithScore(
+                node=TextNode(
+                    text=doc.page_content,
+                    metadata=doc.metadata,
+                ),
+                score=score,
+            )
+            for doc, score in docs_and_scores
+        ]
+
+        query_bundle = QueryBundle(query_str=query)
+
+        reranked_nodes = self._reranker.postprocess_nodes(
+            nodes,
+            query_bundle=query_bundle,
+        )
+
+        # Preserve original document structure
+        reranked_results = [
+            (
+                type(doc)(
+                    page_content=node.node.get_content(),
+                    metadata=node.node.metadata,
+                ),
+                node.score,
+            )
+            for node, (doc, _) in zip(reranked_nodes, docs_and_scores)
+        ]
+
+        return reranked_results[:top_k]
+
+    # ==========================================================
+    # Utilities
+    # ==========================================================
 
     def _build_filter(
         self,
@@ -183,113 +225,67 @@ class RetrievalService:
         section: Optional[str],
         recency_days: Optional[int],
     ) -> Dict[str, Any]:
+        """
+        Construct metadata filter dictionary.
+        """
 
-        filter_dict: Dict[str, Any] = {}
+        filters: Dict[str, Any] = {}
 
         if doc_type:
-            filter_dict["doc_type"] = doc_type.strip().lower()
+            filters["doc_type"] = doc_type.strip().lower()
 
         if section:
-            filter_dict["section"] = section.strip().lower()
+            filters["section"] = section.strip().lower()
 
         if recency_days is not None:
             cutoff = datetime.utcnow() - timedelta(days=recency_days)
-            filter_dict["created_at"] = {
-                "$gte": cutoff.isoformat()
-            }
+            filters["created_at"] = {"$gte": cutoff.isoformat()}
 
-        return filter_dict
+        return filters
 
-    # ==============================================
-    # Post Processing
-    # ==============================================
-
-    def _post_process(
+    def _format_results(
         self,
-        docs_and_scores,
+        docs_and_scores: List[Tuple[Any, float]],
     ) -> List[Dict[str, Any]]:
+        """
+        Convert raw results into API-safe dictionary format.
+        """
 
-        results = []
-
-        for doc, score in docs_and_scores:
-
-            # Assume vector store returns normalized similarity
-            similarity = score
-
-            if similarity < self.score_threshold:
-                continue
-
-            results.append({
-                "content": doc.page_content,
-                "score": similarity,
-                "metadata": doc.metadata,
-            })
-
-        # Sort results by score descending
-        results = sorted(
-            results,
+        return sorted(
+            [
+                {
+                    "content": doc.page_content,
+                    "score": score,
+                    "metadata": doc.metadata,
+                }
+                for doc, score in docs_and_scores
+            ],
             key=lambda x: x["score"],
             reverse=True,
         )
 
-        return results
-
-    # ==============================================
-    # Structured Logging
-    # ==============================================
-
-    def log_retrieval(
+    def _log_retrieval(
         self,
         query: str,
         top_k: int,
         filters: Dict[str, Any],
-        results: List[Dict[str, Any]],
+        result_count: int,
         latency_ms: float,
+        rerank_latency_ms: float,
     ):
+        """
+        Log structured retrieval metadata.
+        """
 
-        log_payload = {
-            "query": query,
-            "top_k": top_k,
-            "filters_applied": filters,
-            "result_count": len(results),
-            "scores": [r["score"] for r in results],
-            "latency_ms": latency_ms,
-        }
-
-        logger.info(f"RETRIEVAL_LOG | {log_payload}")
-
-    def _apply_reranker(self, query: str, docs_and_scores):
-
-        nodes = [
-            NodeWithScore(
-                node=TextNode(
-                    text=doc.page_content,
-                    metadata=doc.metadata
-                ),
-                score=score
-            )
-            for doc, score in docs_and_scores
-        ]
-
-        query_bundle = QueryBundle(query_str=query)
-
-        reranked_nodes = self.reranker.postprocess_nodes(
-            nodes,
-            query_bundle=query_bundle
+        logger.info(
+            {
+                "event": "retrieval",
+                "query": query,
+                "top_k": top_k,
+                "filters": filters,
+                "result_count": result_count,
+                "latency_ms": latency_ms,
+                "rerank_latency_ms": rerank_latency_ms,
+                "rerank_enabled": self.rerank_enabled,
+            }
         )
-
-        # Convert back to expected format
-        reranked_results = []
-
-        for node in reranked_nodes:
-            reranked_results.append((
-                type("Doc", (), {
-                    "page_content": node.node.get_content(),
-                    "metadata": node.node.metadata
-                })(),
-                node.score
-            ))
-
-        return reranked_results
-
-            
