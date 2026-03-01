@@ -26,14 +26,25 @@ class RetrievalService:
     """RFP-Aware Retrieval Layer"""
 
     def __init__(
-        self,
-        embedding_service,
-        vector_store_service,
-        score_threshold: float = 0.80,
-    ):
-        self.embedding_service = embedding_service
-        self.vector_store_service = vector_store_service
-        self.score_threshold = score_threshold
+    self,
+    embedding_service,
+    vector_store_service,
+    score_threshold: float = 0.80,
+    rerank: bool = True,
+    rerank_top_k: int = 5,
+):
+    self.embedding_service = embedding_service
+    self.vector_store_service = vector_store_service
+    self.score_threshold = score_threshold
+    self.rerank = rerank
+    self.rerank_top_k = rerank_top_k
+
+    if self.rerank:
+        self.reranker = FlagEmbeddingReranker(
+            model="BAAI/bge-reranker-large",
+            top_k=self.rerank_top_k,
+            use_fp16=False
+        )
 
     # ==============================================
     # Public Search
@@ -99,6 +110,9 @@ class RetrievalService:
                 k=top_k,
                 filter=filter_dict if filter_dict else None,
             )
+
+            if self.rerank:
+                docs_and_scores = self._apply_reranker(query, docs_and_scores)
 
             return self._post_process(docs_and_scores)
 
@@ -244,28 +258,38 @@ class RetrievalService:
 
         logger.info(f"RETRIEVAL_LOG | {log_payload}")
 
-    def _handle_reranker():
-        # Placeholder for future reranking logic
-        reranker=FlagEmbeddingReranker(
-            top_k=5,
-            model="BAAI/bge-large-en-v1.5",
-            use_fp16=False
-        )
+    def _apply_reranker(self, query: str, docs_and_scores):
 
-        documents=[
-            "Retrieval-Augmented Generation (RAG) combines retrieval and generation for NLP tasks.",
-            "Generative Pre-trained Transformer (GPT) is a language generation model.",
-            "RAG uses a retriever to fetch relevant documents and a generator to produce answers.",
-            "BERT is a model designed for understanding the context of a word in a sentence."
+        nodes = [
+            NodeWithScore(
+                node=TextNode(
+                    text=doc.page_content,
+                    metadata=doc.metadata
+                ),
+                score=score
+            )
+            for doc, score in docs_and_scores
         ]
-        nodes =[NodeWithScore(node=TextNode(text=doc)) for doc in documents]
-        query ="What is RAG in NLP? "
 
         query_bundle = QueryBundle(query_str=query)
-        ranked_nodes =reranker._postprocess_nodes(query_bundle, nodes)
-        for node in ranked_nodes:
-            print(node.node.get_content(), "--> Score:", node.score)
 
-        
+        reranked_nodes = self.reranker.postprocess_nodes(
+            nodes,
+            query_bundle=query_bundle
+        )
 
-        
+        # Convert back to expected format
+        reranked_results = []
+
+        for node in reranked_nodes:
+            reranked_results.append((
+                type("Doc", (), {
+                    "page_content": node.node.get_content(),
+                    "metadata": node.node.metadata
+                })(),
+                node.score
+            ))
+
+        return reranked_results
+
+            
