@@ -4,8 +4,7 @@ import threading
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any, Tuple
 
-from llama_index.core.schema import NodeWithScore, TextNode
-from llama_index.core import QueryBundle
+
 
 # ==========================================================
 # Logging Configuration
@@ -45,6 +44,7 @@ class RetrievalService:
         rerank: bool = True,
         rerank_top_k: int = 5,
         max_latency_ms: int = 2000,
+        reranker_cls=None,
     ):
         """
         Initialize RetrievalService.
@@ -68,6 +68,7 @@ class RetrievalService:
 
         self._reranker = None
         self._reranker_lock = threading.Lock()
+        self.reranker_cls=reranker_cls 
 
     # ==========================================================
     # Public Search API
@@ -157,17 +158,23 @@ class RetrievalService:
         """
         Lazily load cross-encoder reranker in thread-safe manner.
         """
-
         if self._reranker is None:
-            with self._reranker_lock:
-                if self._reranker is None:
-                    logger.info("Loading BGE reranker model...")
-                    self._reranker = FlagEmbeddingReranker(
-                        model="BAAI/bge-reranker-large",
-                        top_k=self.rerank_top_k,
-                        use_fp16=False,
-                    )
+                with self._reranker_lock:
+                    if self._reranker is None:
+                        logger.info("Loading BGE reranker...")
 
+                        if self.reranker_cls is not None:
+                            # used in tests 
+                            self._reranker = self.reranker_cls()
+                        else: 
+                            from FlagEmbedding import FlagReranker
+                            self._reranker = FlagReranker(
+                                "BAAI/bge-reranker-large",
+                                use_fp16=False,
+                        )
+
+       
+            
     def _apply_reranker(
         self,
         query: str,
@@ -175,7 +182,7 @@ class RetrievalService:
         top_k: int,
     ) -> List[Tuple[Any, float]]:
         """
-        Apply cross-encoder reranking.
+        Apply BGE cross-encoder reranking.
 
         Returns:
             Reranked list of (doc, score) tuples.
@@ -183,37 +190,25 @@ class RetrievalService:
 
         self._lazy_load_reranker()
 
-        nodes = [
-            NodeWithScore(
-                node=TextNode(
-                    text=doc.page_content,
-                    metadata=doc.metadata,
-                ),
-                score=score,
-            )
-            for doc, score in docs_and_scores
+        # Create query-document pairs
+        pairs = [
+            [query, doc.page_content]
+            for doc, _ in docs_and_scores
         ]
 
-        query_bundle = QueryBundle(query_str=query)
+        # Compute cross-encoder relevance scores
+        scores = self._reranker.compute_score(pairs)
 
-        reranked_nodes = self._reranker.postprocess_nodes(
-            nodes,
-            query_bundle=query_bundle,
-        )
-
-        # Preserve original document structure
-        reranked_results = [
-            (
-                type(doc)(
-                    page_content=node.node.get_content(),
-                    metadata=node.node.metadata,
-                ),
-                node.score,
-            )
-            for node, (doc, _) in zip(reranked_nodes, docs_and_scores)
+        # Combine original docs with new scores
+        reranked = [
+            (doc, score)
+            for (doc, _), score in zip(docs_and_scores, scores)
         ]
 
-        return reranked_results[:top_k]
+        # Sort by reranker score
+        reranked.sort(key=lambda x: x[1], reverse=True)
+
+        return reranked[:top_k]
 
     # ==========================================================
     # Utilities
