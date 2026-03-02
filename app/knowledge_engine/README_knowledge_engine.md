@@ -124,3 +124,187 @@ The final output of the chunking pipeline is:
 - A list of semantically coherent text chunks
 - Each chunk enriched with contextual metadata
 - A structure-aware segmentation optimized for downstream retrieval and AI processing
+
+## Embedding
+
+### Embedding Utility
+
+The Embedding Utility is responsible for converting semantically coherent document chunks into dense vector representations suitable for similarity search and retrieval in a Retrieval-Augmented Generation (RAG) pipeline.
+
+This module operates downstream of the chunking stage and transforms enriched `Document` objects into normalized embeddings while preserving metadata and generating operational metrics.
+
+### Purpose
+
+After documents are parsed and chunked, embeddings are required to enable semantic search, clustering, and retrieval. This utility automates that process by:
+
+* Loading and configuring a SentenceTransformer model
+* Generating embeddings in efficient batches
+* Normalizing vectors for cosine similarity
+* Caching embeddings to avoid redundant computation
+* Preserving metadata alignment
+* Producing embedding-level metrics
+
+This ensures consistent, reproducible embeddings and efficient reuse across ingestion runs.
+
+### Model Selection
+
+The utility uses SentenceTransformers and defaults to:
+
+* **Model**: `BAAI/bge-large-en-v1.5`
+* **Embedding Dimension**: 1024
+* **Similarity Metric**: Cosine (via normalized embeddings)
+
+The model is automatically loaded onto GPU if available, otherwise CPU is used.
+
+### Architecture Overview
+
+The design emphasizes performance, determinism, and traceability:
+
+* Deterministic hashing for cache keys
+* On-disk embedding cache
+* Batch-based encoding
+* Separation of model loading, caching, and embedding logic
+* Metric generation for observability
+
+Core responsibilities are separated into:
+
+* `load_embedding_model()` – Loads and configures the embedding model
+* `embed_documents()` – Generates embeddings for a list of chunked documents
+* Cache helpers – Handle embedding persistence and retrieval
+
+### Embedding Workflow
+
+The embedding pipeline follows these steps:
+
+1. **Model Initialization**
+   The SentenceTransformer model is loaded with automatic device selection (CUDA if available).
+
+2. **Cache Key Generation**
+   Each chunk is hashed using a deterministic SHA-256 key derived from:
+
+   * Model name
+   * Chunk text content
+
+3. **Cache Lookup**
+   If an embedding already exists on disk for the given key, it is reused instead of recomputed.
+
+4. **Batch Embedding**
+   Chunks without cached vectors are encoded in configurable batches. Embeddings are L2-normalized to ensure compatibility with cosine similarity search.
+
+5. **Cache Persistence**
+   Newly generated embeddings are serialized and stored for future reuse.
+
+6. **Metric Collection**
+   Embedding statistics are computed to support monitoring and validation.
+
+### Input
+
+The embedding utility expects:
+
+* A list of LangChain-compatible `Document` objects
+* Each document must contain:
+
+  * `page_content` – The chunk text
+  * `metadata` – Enriched metadata from the chunking stage
+
+### Output
+
+The output of the embedding step is a structured dictionary:
+
+* `embeddings` – List of embedding vectors (`List[List[float]]`)
+* `metadatas` – Corresponding metadata objects for each chunk
+* `metrics` – Embedding-level statistics
+
+### Metrics Generated
+
+The following metrics are calculated automatically:
+
+* `total_chunks` – Number of embedded chunks
+* `avg_tokens_per_chunk` – Average token count per chunk
+* `min_tokens` / `max_tokens` – Token range across chunks
+* `embedding_dim` – Dimensionality of the embedding vectors
+* `avg_vector_norm` – Mean L2 norm of embeddings (post-normalization)
+* `cache_hit_ratio` – Percentage of chunks served from cache
+
+These metrics provide insight into chunk quality, embedding consistency, and cache efficiency.
+
+### Caching Strategy
+
+To optimize performance and reduce cost:
+
+* Embeddings are cached on disk using deterministic content-based hashes
+* Cache keys are stable across runs for identical text and model combinations
+* Only uncached chunks are re-embedded
+
+This makes the embedding stage idempotent and scalable for large RFP corpora.
+
+### Final Output
+
+The final output of the embedding pipeline is:
+
+* A vector representation for each document chunk
+* Metadata preserved for downstream indexing and retrieval
+* Operational metrics for observability
+
+These embeddings are ready to be ingested into a vector store or retrieval index for semantic search and RAG-based question answering.
+
+
+
+
+## Retrieval & Reranking Module
+
+### Overview
+
+The `RetrievalService` implements a production-grade semantic retrieval pipeline with optional cross-encoder reranking. It is designed to be scalable, testable, and production-safe.
+
+The pipeline performs:
+
+1. Query embedding
+2. Vector similarity search
+3. Score threshold filtering
+4. Optional cross-encoder reranking (BGE)
+5. Structured response formatting
+
+---
+
+### Architecture Flow
+
+User Query  
+↓  
+Embedding Service  
+↓  
+Vector Store (Similarity Search)  
+↓  
+Score Threshold Filtering  
+↓  
+(Optional) Cross-Encoder Reranking  
+↓  
+Final Ranked Results  
+
+---
+
+### Key Features
+
+- Semantic search using embeddings
+- Optional BGE cross-encoder reranking
+- Metadata-based filtering (doc_type, section, recency)
+- Score threshold control
+- Structured logging with latency tracking
+- Dependency injection for test isolation
+- Thread-safe lazy model loading
+- Graceful fallback if reranker fails
+
+---
+
+### Configuration
+
+```python
+RetrievalService(
+    embedding_service,
+    vector_store_service,
+    score_threshold=0.0,
+    rerank=True,
+    rerank_top_k=5,
+    max_latency_ms=2000,
+    reranker_cls=None,  # Inject custom reranker (used in tests)
+)
