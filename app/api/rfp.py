@@ -8,13 +8,15 @@ from app.rfp_workflows.storage import SessionLocal, parse_file
 from app.rfp_workflows.sessions import (
     create_rfp_session,
     add_questions,
+    add_question,
     get_rfp,
     get_questions
 )
 from app.api.schemas import (
     RFPSessionResponse,
     QuestionListResponse,
-    QuestionResponse
+    QuestionResponse,
+    QuestionCreateRequest
 )
 
 router = APIRouter(prefix="/rfp", tags=["RFP"])
@@ -104,4 +106,26 @@ def list_questions(rfp_id: str, db: Session = Depends(get_db)):
             )
             for q in questions
         ]
+    )
+# -----------------------
+# ADD SINGLE QUESTION
+# -----------------------
+@router.post("/{rfp_id}/question", response_model=QuestionResponse)
+def add_single_question(
+    rfp_id: str,
+    request: QuestionCreateRequest,
+    db: Session = Depends(get_db)
+):
+
+    rfp = get_rfp(db, rfp_id)
+
+    if not rfp:
+        raise HTTPException(status_code=404, detail="RFP not found")
+
+    question = add_question(db, rfp_id, request.question_text)
+
+    return QuestionResponse(
+        id=question.id,
+        question_text=question.question_text,
+        status=question.status
     )

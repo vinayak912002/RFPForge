@@ -20,3 +20,6 @@ class QuestionResponse(BaseModel):
 class QuestionListResponse(BaseModel):
     rfp_id: str
     questions: List[QuestionResponse]
+
+class QuestionCreateRequest(BaseModel):
+    question_text: str

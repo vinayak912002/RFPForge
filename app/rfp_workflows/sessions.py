@@ -40,3 +40,17 @@ def get_rfp(db: Session, rfp_id: str):
 
 def get_questions(db: Session, rfp_id: str):
     return db.query(Question).filter(Question.rfp_id == rfp_id).all()
+
+def add_question(db: Session, rfp_id: str, question_text: str):
+    question = Question(
+        id=str(uuid.uuid4()),
+        rfp_id=rfp_id,
+        question_text=question_text,
+        status="draft"
+    )
+
+    db.add(question)
+    db.commit()
+    db.refresh(question)
+
+    return question
