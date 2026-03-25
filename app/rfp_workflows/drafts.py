@@ -1,7 +1,7 @@
  # draft versioning & edits
 from sqlalchemy.orm import Session
 from app.rfp_workflows.models import Question
-from app.rfp_workflows.drafts import add_draft, get_latest_draft
+from app.rfp_workflows.sessions import add_draft, get_latest_draft
 from app.knowledge_engine.prompting import build_draft_prompt
 
 
