@@ -1,4 +1,3 @@
-# RFP sessions, questions, drafts
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
 from sqlalchemy.orm import Session
 from datetime import datetime
@@ -9,7 +8,8 @@ from app.knowledge_engine.retrieval import RetrievalService
 from app.knowledge_engine.embeddings import EmbeddingService
 from app.knowledge_engine.vector_store import VectorStore
 
-from app.rfp_workflows.storage import SessionLocal, parse_file
+from app.db.dependencies import get_db
+from app.rfp_workflows.storage import parse_file
 from app.rfp_workflows.sessions import (
     create_rfp_session,
     add_questions,
@@ -17,7 +17,7 @@ from app.rfp_workflows.sessions import (
     get_rfp,
     get_questions
 )
-from app.api.schemas import (
+from app.schemas.rfp import (
     RFPSessionResponse,
     QuestionListResponse,
     QuestionResponse,
@@ -25,14 +25,6 @@ from app.api.schemas import (
 )
 
 router = APIRouter(prefix="/rfp", tags=["RFP"])
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 # -----------------------
@@ -57,7 +49,8 @@ async def create_rfp(
     if rfp_file:
         try:
             questions = parse_file(rfp_file)
-            add_questions(db, rfp.rfp_id, questions)
+            if questions:
+                add_questions(db, rfp.rfp_id, questions)
         except Exception:
             raise HTTPException(status_code=500, detail="File parsing failed")
 
@@ -98,9 +91,6 @@ def get_rfp_summary(rfp_id: str, db: Session = Depends(get_db)):
 def list_questions(rfp_id: str, db: Session = Depends(get_db)):
     questions = get_questions(db, rfp_id)
 
-    if not questions:
-        raise HTTPException(status_code=404, detail="No questions found")
-
     return QuestionListResponse(
         rfp_id=rfp_id,
         questions=[
@@ -112,6 +102,8 @@ def list_questions(rfp_id: str, db: Session = Depends(get_db)):
             for q in questions
         ]
     )
+
+
 # -----------------------
 # ADD SINGLE QUESTION
 # -----------------------
