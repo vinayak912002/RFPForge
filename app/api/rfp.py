@@ -95,9 +95,10 @@ def list_questions(rfp_id: str, db: Session = Depends(get_db)):
         rfp_id=rfp_id,
         questions=[
             QuestionResponse(
-                id=q.id,
+                question_id=q.id,
+                rfp_id=q.rfp_id,
                 question_text=q.question_text,
-                status=q.status
+            
             )
             for q in questions
         ]
@@ -122,9 +123,10 @@ def add_single_question(
     question = add_question(db, rfp_id, request.question_text)
 
     return QuestionResponse(
-        id=question.id,
+        question_id=question.id,
+        rfp_id=question.rfp_id,
         question_text=question.question_text,
-        status=question.status
+        
     )
 
 
