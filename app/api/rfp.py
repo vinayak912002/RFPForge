@@ -1,123 +1,68 @@
-from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
-from sqlalchemy.orm import Session
-from datetime import datetime
-from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, Session
 
-from app.db.dependencies import get_db
-from app.rfp_workflows.storage import parse_file
-from app.rfp_workflows.sessions import (
-    create_rfp_session,
-    add_questions,
-    add_question,
-    get_rfp,
-    get_questions
-)
-from app.schemas.rfp import (
-    RFPSessionResponse,
-    QuestionListResponse,
-    QuestionResponse,
-    QuestionCreateRequest
+from app.rfp_workflows.models import Base
+from app.rfp_workflows.finalize import finalize_rfp
+from app.rfp_workflows.export import export_to_word, export_to_excel
+
+DATABASE_URL = "sqlite:///./rfp.db"
+
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"check_same_thread": False}
 )
 
-router = APIRouter(prefix="/rfp", tags=["RFP"])
+SessionLocal = sessionmaker(bind=engine)
+
+Base.metadata.create_all(bind=engine)
+
+router = APIRouter()
 
 
-# -----------------------
-# CREATE RFP
-# -----------------------
-@router.post("/", response_model=RFPSessionResponse)
-async def create_rfp(
-    client_name: str = Form(...),
-    deadline: str = Form(...),
-    rfp_file: Optional[UploadFile] = File(None),
-    db: Session = Depends(get_db)
-):
+def get_db():
+    db = SessionLocal()
     try:
-        deadline_dt = datetime.fromisoformat(deadline)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid deadline format")
-
-    rfp = create_rfp_session(db, client_name, deadline_dt)
-
-    questions = []
-
-    if rfp_file:
-        try:
-            questions = parse_file(rfp_file)
-            if questions:
-                add_questions(db, rfp.rfp_id, questions)
-        except Exception:
-            raise HTTPException(status_code=500, detail="File parsing failed")
-
-    return RFPSessionResponse(
-        rfp_id=rfp.rfp_id,
-        client_name=rfp.client_name,
-        deadline=rfp.deadline,
-        status=rfp.status,
-        question_count=len(questions)
-    )
+        yield db
+    finally:
+        db.close()
 
 
-# -----------------------
-# GET RFP SUMMARY
-# -----------------------
-@router.get("/{rfp_id}", response_model=RFPSessionResponse)
-def get_rfp_summary(rfp_id: str, db: Session = Depends(get_db)):
-    rfp = get_rfp(db, rfp_id)
-
-    if not rfp:
-        raise HTTPException(status_code=404, detail="RFP not found")
-
-    questions = get_questions(db, rfp_id)
-
-    return RFPSessionResponse(
-        rfp_id=rfp.rfp_id,
-        client_name=rfp.client_name,
-        deadline=rfp.deadline,
-        status=rfp.status,
-        question_count=len(questions)
-    )
+# ---------------------------
+# FINALIZE RFP
+# ---------------------------
+@router.post("/rfp/{rfp_id}/finalize")
+def finalize(rfp_id: str, db: Session = Depends(get_db)):
+    return finalize_rfp(db, rfp_id)
 
 
-# -----------------------
-# GET QUESTIONS
-# -----------------------
-@router.get("/{rfp_id}/questions", response_model=QuestionListResponse)
-def list_questions(rfp_id: str, db: Session = Depends(get_db)):
-    questions = get_questions(db, rfp_id)
+# ---------------------------
+# EXPORT WORD
+# ---------------------------
+@router.get("/rfp/{rfp_id}/export/word")
+def export_word(rfp_id: str, db: Session = Depends(get_db)):
 
-    return QuestionListResponse(
-        rfp_id=rfp_id,
-        questions=[
-            QuestionResponse(
-                id=q.id,
-                question_text=q.question_text,
-                status=q.status
-            )
-            for q in questions
-        ]
-    )
+    file_path = export_to_word(db, rfp_id)
+
+    if not file_path:
+        raise HTTPException(status_code=404, detail="No finalized drafts found")
+
+    return {
+        "file": file_path
+    }
 
 
-# -----------------------
-# ADD SINGLE QUESTION
-# -----------------------
-@router.post("/{rfp_id}/question", response_model=QuestionResponse)
-def add_single_question(
-    rfp_id: str,
-    request: QuestionCreateRequest,
-    db: Session = Depends(get_db)
-):
+# ---------------------------
+# EXPORT EXCEL
+# ---------------------------
+@router.get("/rfp/{rfp_id}/export/excel")
+def export_excel(rfp_id: str, db: Session = Depends(get_db)):
 
-    rfp = get_rfp(db, rfp_id)
+    file_path = export_to_excel(db, rfp_id)
 
-    if not rfp:
-        raise HTTPException(status_code=404, detail="RFP not found")
+    if not file_path:
+        raise HTTPException(status_code=404, detail="No finalized drafts found")
 
-    question = add_question(db, rfp_id, request.question_text)
-
-    return QuestionResponse(
-        id=question.id,
-        question_text=question.question_text,
-        status=question.status
-    )
+    return {
+        "file": file_path
+    }

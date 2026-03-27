@@ -1,19 +1,6 @@
 from fastapi import FastAPI
-from app.api import rfp
-from app.db.base import Base
-from app.rfp_workflows.storage import engine
+from app.api.rfp import router as rfp_router
 
-app = FastAPI(
-    title="RFPForge API",
-    version="1.0.0"
-)
+app = FastAPI(title="RFPForge API")
 
-# Create tables automatically
-Base.metadata.create_all(bind=engine)
-
-app.include_router(rfp.router)
-
-
-@app.get("/")
-def root():
-    return {"message": "RFPForge API is running"}
+app.include_router(rfp_router)
