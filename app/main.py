@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from app.api import rfp
+from app.api import knowledge, rfp
 from app.db.base import Base
 from app.rfp_workflows.storage import engine
 
@@ -12,7 +12,8 @@ app = FastAPI(
 Base.metadata.create_all(bind=engine)
 
 app.include_router(rfp.router)
-
+app.include_router(knowledge.router)
+    
 
 @app.get("/")
 def root():

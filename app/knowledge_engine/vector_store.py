@@ -23,6 +23,7 @@ class VectorStore:
                 anonymized_telemetry=False
             )
         )
+        self.collection_name = "rfp_knowledge"
 
     # COLLECTION HANDLING
 
