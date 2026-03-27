@@ -156,6 +156,7 @@ def generate_draft(
     return {
         "draft_id": draft.draft_id,
         "question_id": draft.question_id,
+        "question_text": draft.question.question_text,
         "answer_text": draft.answer_text,
         "version": draft.version,
         "sources": draft.sources_json
