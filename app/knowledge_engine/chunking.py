@@ -260,10 +260,22 @@ def build_metadata(base_metadata, section_title, content):
 
     clause_numbers = re.findall(r"\b\d+\.\d+(\.\d+)*\b", content)
 
-    return {
+    metadata={
         **base_metadata,
         "chunk_id": str(uuid.uuid4()),
-        "section_title": section_title,
-        "clauses": clause_numbers,
-        "structure_detected": section_title is not None,
+        "structure_detected": section_title is not None
     }
+    if section_title:
+        metadata["section_title"] = section_title
+    
+    if clause_numbers:
+        metadata["clauses"] = clause_numbers
+    
+    return metadata
+    # return {
+    #     **base_metadata,
+    #     "chunk_id": str(uuid.uuid4()),
+    #     "section_title": section_title,
+    #     "clauses": clause_numbers,
+    #     "structure_detected": section_title is not None,
+    # }
