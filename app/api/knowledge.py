@@ -96,7 +96,7 @@ def debug_search(query: str):
 
     q_emb = emb.embed_query(query)
 
-    results = vs.similarity_search(q_emb, k=5)
+    results = vs.similarity_search("rfp_knowledge", q_emb, k=5)
 
     return results
 
@@ -111,7 +111,7 @@ def debug_vector_search(query: str):
 
     query_embedding = emb.embed_query(query)
 
-    results = vs.similarity_search(query_embedding, k=5)
+    results = vs.similarity_search("rfp_knowledge", query_embedding, k=5)
 
     return {
         "results": [
