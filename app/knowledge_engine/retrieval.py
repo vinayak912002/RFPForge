@@ -147,6 +147,7 @@ class RetrievalService:
             latency_ms=total_latency,
             rerank_latency_ms=rerank_latency if self.rerank_enabled else 0,
         )
+        print(docs_and_scores)
 
         return results
 

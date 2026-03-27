@@ -77,3 +77,49 @@ def search_knowledge(query: str):
         "query": query,
         "results": results
     }
+
+#  temporary endpoint in knowledge.py for debugging vector store contents. will Remove it later.
+@router.get("/debug")
+def debug():
+    from app.knowledge_engine.vector_store import VectorStore
+    vs = VectorStore()
+    return vs.get_documents("rfp_knowledge")
+
+# similarly temporary endpoint for testing retrieval end to end. will remove later.
+@router.post("/debug-search")
+def debug_search(query: str):
+    from app.knowledge_engine.embeddings import EmbeddingService
+    from app.knowledge_engine.vector_store import VectorStore
+
+    emb = EmbeddingService()
+    vs = VectorStore()
+
+    q_emb = emb.embed_query(query)
+
+    results = vs.similarity_search(q_emb, k=5)
+
+    return results
+
+# temporary 
+@router.post("/debug-vector-search")
+def debug_vector_search(query: str):
+    from app.knowledge_engine.embeddings import EmbeddingService
+    from app.knowledge_engine.vector_store import VectorStore
+
+    emb = EmbeddingService()
+    vs = VectorStore()
+
+    query_embedding = emb.embed_query(query)
+
+    results = vs.similarity_search(query_embedding, k=5)
+
+    return {
+        "results": [
+            {
+                "content": doc.page_content[:200],
+                "metadata": doc.metadata,
+                "score": score
+            }
+            for doc, score in results
+        ]
+    }
