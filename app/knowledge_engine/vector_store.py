@@ -5,7 +5,9 @@ from typing import List, Dict
 
 import chromadb
 from chromadb.config import Settings
-from docx.document import Document
+# from docx.document import Document
+from langchain_core.documents import Document
+
 
 
 class VectorStore:
@@ -62,13 +64,13 @@ class VectorStore:
 
     # SIMILARITY SEARCH
 
-    from langchain_core.documents import Document
 
     def similarity_search(
         self,
         collection_name: str,
         query_embedding,
-        k: int = 5
+        k: int = 5,
+        filter:dict | None = None
     ):
         collection = self.get_collection(collection_name)
 
