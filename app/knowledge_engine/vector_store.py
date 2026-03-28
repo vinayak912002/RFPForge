@@ -5,6 +5,9 @@ from typing import List, Dict
 
 import chromadb
 from chromadb.config import Settings
+# from docx.document import Document
+from langchain_core.documents import Document
+
 
 
 class VectorStore:
@@ -23,6 +26,7 @@ class VectorStore:
                 anonymized_telemetry=False
             )
         )
+        self.collection_name = "rfp_knowledge"
 
     # COLLECTION HANDLING
 
@@ -60,11 +64,13 @@ class VectorStore:
 
     # SIMILARITY SEARCH
 
+
     def similarity_search(
         self,
         collection_name: str,
-        query_embedding: List[float],
-        k: int = 3
+        query_embedding,
+        k: int = 5,
+        filter:dict | None = None
     ):
         collection = self.get_collection(collection_name)
 
@@ -73,7 +79,19 @@ class VectorStore:
             n_results=k
         )
 
-        return results
+        documents = results["documents"][0]
+        metadatas = results["metadatas"][0]
+        distances = results["distances"][0]
+
+        output = []
+
+        for doc, meta, dist in zip(documents, metadatas, distances):
+            score = 1 - dist  # convert distance → similarity
+            output.append(
+                (Document(page_content=doc, metadata=meta), score)
+            )
+
+        return output
 
     # GET ALL DOCUMENTS
 
