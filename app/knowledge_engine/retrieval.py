@@ -103,6 +103,7 @@ class RetrievalService:
             query_embedding = self.embedding_service.embed_query(query)
 
             docs_and_scores = self.vector_store_service.similarity_search(
+                collection_name=self.vector_store_service.collection_name,
                 query_embedding=query_embedding,
                 k=top_k,
                 filter=filters if filters else None,
@@ -147,6 +148,7 @@ class RetrievalService:
             latency_ms=total_latency,
             rerank_latency_ms=rerank_latency if self.rerank_enabled else 0,
         )
+        print(docs_and_scores)
 
         return results
 

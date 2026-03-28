@@ -120,3 +120,27 @@ def embed_documents(
         "metadatas": metadatas,
         "metrics": metrics
     }
+
+from pathlib import Path
+
+class EmbeddingService:
+    def __init__(self, model_name="BAAI/bge-large-en-v1.5"):
+        self.model_name = model_name
+        self.model = load_embedding_model(model_name)
+        self.cache_dir = Path("./embedding_cache")
+
+    def embed_query(self, query: str):
+        embedding = self.model.encode(
+            [query],
+            normalize_embeddings=True
+        )
+        return embedding[0].tolist()
+
+    def embed_documents(self, documents):
+        result = embed_documents(
+            documents=documents,
+            model=self.model,
+            cache_dir=self.cache_dir,
+            model_name=self.model_name
+        )
+        return result

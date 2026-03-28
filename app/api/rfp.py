@@ -2,6 +2,11 @@ from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
 from sqlalchemy.orm import Session
 from datetime import datetime
 from typing import Optional
+from app.rfp_workflows.drafts import generate_first_draft
+from app.knowledge_engine.llm import LLMService
+from app.knowledge_engine.retrieval import RetrievalService
+from app.knowledge_engine.embeddings import EmbeddingService
+from app.knowledge_engine.vector_store import VectorStore
 
 from app.db.dependencies import get_db
 from app.rfp_workflows.storage import parse_file
@@ -90,9 +95,10 @@ def list_questions(rfp_id: str, db: Session = Depends(get_db)):
         rfp_id=rfp_id,
         questions=[
             QuestionResponse(
-                id=q.id,
+                question_id=q.id,
+                rfp_id=q.rfp_id,
                 question_text=q.question_text,
-                status=q.status
+            
             )
             for q in questions
         ]
@@ -117,7 +123,41 @@ def add_single_question(
     question = add_question(db, rfp_id, request.question_text)
 
     return QuestionResponse(
-        id=question.id,
+        question_id=question.id,
+        rfp_id=question.rfp_id,
         question_text=question.question_text,
-        status=question.status
+        
     )
+
+
+@router.post("/{rfp_id}/question/{question_id}/draft")
+def generate_draft(
+    rfp_id: str,
+    question_id: str,
+    db: Session = Depends(get_db)
+):
+    # Initialize services
+    embedding_service = EmbeddingService()
+    vector_store = VectorStore()
+    retrieval_service = RetrievalService(
+        embedding_service=embedding_service,
+        vector_store_service=vector_store
+    )
+
+    llm_service = LLMService()
+
+    draft = generate_first_draft(
+        db=db,
+        question_id=question_id,
+        retrieval_service=retrieval_service,
+        llm_service=llm_service
+    )
+
+    return {
+        "draft_id": draft.draft_id,
+        "question_id": draft.question_id,
+        "question_text": draft.question.question_text,
+        "answer_text": draft.answer_text,
+        "version": draft.version,
+        "sources": draft.sources_json
+    }
