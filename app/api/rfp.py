@@ -37,7 +37,7 @@ DATABASE_URL = "sqlite:///./rfp.db"
 
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False}
+    connect_args={"check_same_thread": False})
   
 SessionLocal = sessionmaker(bind=engine)
 
@@ -89,8 +89,20 @@ def export_excel(rfp_id: str, db: Session = Depends(get_db)):
     if not file_path:
         raise HTTPException(status_code=404, detail="No finalized drafts found")
 
-    return {
-        "file": file_path
+    return {"file": file_path}
+
+
+# ---------------------------
+# CREATE RFP
+# ---------------------------
+@router.post("/rfp", response_model=RFPSessionResponse)
+def create_rfp(
+    client_name: str = Form(...),
+    deadline: str = Form(...),
+    rfp_file: Optional[UploadFile] = File(None),
+    db: Session = Depends(get_db)
+):
+    try:
         deadline_dt = datetime.fromisoformat(deadline)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid deadline format")
@@ -110,9 +122,7 @@ def export_excel(rfp_id: str, db: Session = Depends(get_db)):
     return RFPSessionResponse(
         rfp_id=rfp.rfp_id,
         client_name=rfp.client_name,
-        deadline=rfp.deadline,
-        status=rfp.status,
-        question_count=len(questions)
+        deadline=rfp.deadline
     )
 
 
