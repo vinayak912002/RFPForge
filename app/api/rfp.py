@@ -7,6 +7,18 @@ from typing import Optional
 from app.rfp_workflows.models import Base
 from app.rfp_workflows.finalize import finalize_rfp
 from app.rfp_workflows.export import export_to_word, export_to_excel
+from app.rfp_workflows import sessions, drafts, finalize
+
+
+from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+from datetime import datetime
+from typing import Optional
+from app.rfp_workflows.drafts import generate_first_draft
+from app.knowledge_engine.llm import LLMService
+from app.knowledge_engine.retrieval import RetrievalService
+from app.knowledge_engine.embeddings import EmbeddingService
+from app.knowledge_engine.vector_store import VectorStore
 
 from app.db.dependencies import get_db
 from app.rfp_workflows.storage import parse_file
@@ -19,18 +31,21 @@ from app.rfp_workflows.sessions import (
 )
 
 from app.schemas.rfp import (
+    RFPSessionCreateRequest,
     RFPSessionResponse,
-    QuestionListResponse,
+    QuestionCreateRequest,
     QuestionResponse,
-    QuestionCreateRequest
+    DraftCreateRequest,
+    DraftResponse,
+    QuestionListResponse
 )
 
-from app.rfp_workflows.drafts import generate_first_draft
+# Importing existing logic from rfp_workflows
+from app.rfp_workflows import sessions, drafts, finalize
 from app.knowledge_engine.llm import LLMService
 from app.knowledge_engine.retrieval import RetrievalService
 from app.knowledge_engine.embeddings import EmbeddingService
 from app.knowledge_engine.vector_store import VectorStore
-
 
 DATABASE_URL = "sqlite:///./rfp.db"
 
@@ -216,3 +231,48 @@ def generate_draft(
         "version": draft.version,
         "sources": draft.sources_json
     }
+
+# ---------------------------
+# SAVE/UPDATE MANUAL DRAFT
+# ---------------------------
+@router.post("/draft", response_model=DraftResponse)
+@router.put("/draft", response_model=DraftResponse)
+def save_manual_draft(
+    request: DraftCreateRequest,
+    db: Session = Depends(get_db)
+):
+    # This calls your drafts.add_draft logic
+    draft_obj = drafts.add_draft(
+        db,
+        question_id=request.question_id,
+        answer_text=request.answer_text,
+        version=request.version
+    )
+    return draft_obj
+
+# ---------------------------
+# REGENERATE AI RESPONSE
+# ---------------------------
+@router.post("/question/{question_id}/regenerate", response_model=DraftResponse)
+def regenerate_response(
+    question_id: str,
+    db: Session = Depends(get_db)
+):
+    # Initialize RAG Services
+    retrieval_service = RetrievalService(
+        embedding_service=EmbeddingService(),
+        vector_store_service=VectorStore ()
+    )
+    llm_service = LLMService()
+
+    try:
+        # Re-runs the RAG pipeline
+        new_draft = generate_first_draft(
+            db=db,
+            question_id=question_id,
+            retrieval_service=retrieval_service,
+            llm_service=llm_service
+        )
+        return new_draft
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Regeneration failed: {str(e)}")
