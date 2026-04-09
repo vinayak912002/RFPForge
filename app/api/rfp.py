@@ -36,8 +36,9 @@ DATABASE_URL = "sqlite:///./rfp.db"
 
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False}
-)
+    connect_args={"check_same_thread": False})
+  
+SessionLocal = sessionmaker(bind=engine)
 
 SessionLocal = sessionmaker(bind=engine)
 Base.metadata.create_all(bind=engine)
@@ -91,7 +92,6 @@ def create_rfp(
     rfp_file: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db)
 ):
-
     try:
         deadline_dt = datetime.fromisoformat(deadline)
     except ValueError:
@@ -112,9 +112,7 @@ def create_rfp(
     return RFPSessionResponse(
         rfp_id=rfp.rfp_id,
         client_name=rfp.client_name,
-        deadline=rfp.deadline,
-        status=rfp.status,
-        question_count=len(questions)
+        deadline=rfp.deadline
     )
 
 

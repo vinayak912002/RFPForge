@@ -1,1 +1,1 @@
-Readme for the rfp resonse generation app 
+to install the requirements run `pip install -r requirements.txt --use-deprecated=legacy-resolver`
