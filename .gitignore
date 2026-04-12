@@ -10,3 +10,4 @@ venv/
 .env
 rfp.db
 embedding_cache/
+graphify-out/
