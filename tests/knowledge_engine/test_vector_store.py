@@ -18,7 +18,7 @@ def vector_store():
 
     # Cleanup after test
     if os.path.exists(TEST_DB_DIR):
-        shutil.rmtree(TEST_DB_DIR)
+        shutil.rmtree(TEST_DB_DIR, ignore_errors=True)
 
 
 def test_add_and_get_documents(vector_store):
@@ -51,7 +51,10 @@ def test_similarity_search(vector_store):
         k=1
     )
 
-    assert "documents" in results
+    assert len(results) == 1
+    doc, score = results[0]
+    assert hasattr(doc, "page_content")
+    assert score is not None
 
 
 def test_health_check(vector_store):
