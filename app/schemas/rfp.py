@@ -1,6 +1,6 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
 
 # ------------------ CREATE REQUEST ------------------
@@ -27,9 +27,10 @@ class RFPSessionResponse(BaseModel):
     rfp_id: str
     client_name: str
     deadline: datetime
+    status: Optional[str] = None
+    question_count: Optional[int] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class QuestionResponse(BaseModel):
@@ -37,8 +38,7 @@ class QuestionResponse(BaseModel):
     rfp_id: str
     question_text: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class DraftResponse(BaseModel):
@@ -47,13 +47,13 @@ class DraftResponse(BaseModel):
     answer_text: str
     version: int
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ------------------ LIST ------------------
 
 class QuestionListResponse(BaseModel):
+    rfp_id: str
     questions: List[QuestionResponse]
 
 

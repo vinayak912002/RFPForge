@@ -5,6 +5,9 @@ import pickle
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 import numpy as np
+from app.utils.logging import get_logger
+
+logger = get_logger("knowledge.embeddings")
 
 def load_embedding_model(
     model_name: str = "BAAI/bge-large-en-v1.5",
@@ -85,8 +88,8 @@ def embed_documents(
             to_embed.append(text)
             to_embed_indices.append(idx)
 
-    # --- batch embedding ---
     if to_embed:
+        logger.info(f"Embedding {len(to_embed)} new chunks (Cache missed: {len(to_embed)}/{len(texts)})")
         new_embeddings = model.encode(
             to_embed,
             batch_size=batch_size,
@@ -100,19 +103,36 @@ def embed_documents(
 
             key = get_cache_key(texts[idx], model_name)
             save_cached_embedding(cache_dir, key, emb)
+    else:
+        logger.info(f"All {len(texts)} chunks served from cache.")
 
     # --- metrics ---
+    if not texts:
+        return {
+            "embeddings": [],
+            "metadatas": [],
+            "metrics": {
+                "total_chunks": 0,
+                "avg_tokens_per_chunk": 0,
+                "min_tokens": 0,
+                "max_tokens": 0,
+                "embedding_dim": 0,
+                "avg_vector_norm": 0,
+                "cache_hit_ratio": 0
+            }
+        }
+
     token_counts = [len(t.split()) for t in texts]
-    vector_norms = [np.linalg.norm(e) for e in embeddings]
+    vector_norms = [np.linalg.norm(e) for e in embeddings if e is not None]
 
     metrics = {
         "total_chunks": len(texts),
-        "avg_tokens_per_chunk": sum(token_counts) / len(token_counts),
-        "min_tokens": min(token_counts),
-        "max_tokens": max(token_counts),
-        "embedding_dim": len(embeddings[0]),
-        "avg_vector_norm": float(np.mean(vector_norms)),
-        "cache_hit_ratio": 1 - (len(to_embed) / len(texts))
+        "avg_tokens_per_chunk": sum(token_counts) / len(token_counts) if token_counts else 0,
+        "min_tokens": min(token_counts) if token_counts else 0,
+        "max_tokens": max(token_counts) if token_counts else 0,
+        "embedding_dim": len(embeddings[0]) if embeddings and embeddings[0] else 0,
+        "avg_vector_norm": float(np.mean(vector_norms)) if vector_norms else 0,
+        "cache_hit_ratio": 1 - (len(to_embed) / len(texts)) if texts else 0
     }
 
     return {

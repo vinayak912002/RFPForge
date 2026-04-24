@@ -1,21 +1,6 @@
 # DB operations
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from app.db.base import Base
-
 from docx import Document
 from pypdf import PdfReader
-
-DATABASE_URL = "sqlite:///./rfp.db"
-
-engine = create_engine(
-    DATABASE_URL,
-    connect_args={"check_same_thread": False}
-)
-
-SessionLocal = sessionmaker(bind=engine)
-
-Base.metadata.create_all(bind=engine)
 
 
 

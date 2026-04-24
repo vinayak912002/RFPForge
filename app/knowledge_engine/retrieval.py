@@ -1,7 +1,7 @@
 import logging
 import time
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Dict, Any, Tuple
 
 
@@ -148,7 +148,7 @@ class RetrievalService:
             latency_ms=total_latency,
             rerank_latency_ms=rerank_latency if self.rerank_enabled else 0,
         )
-        print(docs_and_scores)
+
 
         return results
 
@@ -235,7 +235,7 @@ class RetrievalService:
             filters["section"] = section.strip().lower()
 
         if recency_days is not None:
-            cutoff = datetime.utcnow() - timedelta(days=recency_days)
+            cutoff = datetime.now(timezone.utc) - timedelta(days=recency_days)
             filters["created_at"] = {"$gte": cutoff.isoformat()}
 
         return filters
