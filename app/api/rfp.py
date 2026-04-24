@@ -35,8 +35,11 @@ logger = get_logger("api.rfp")
 
 # Importing existing logic from rfp_workflows
 from app.rfp_workflows import sessions, drafts, finalize
+from app.rfp_workflows.drafts import generate_first_draft
 from app.knowledge_engine.llm import LLMService
 from app.knowledge_engine.retrieval import RetrievalService
+from app.knowledge_engine.embeddings import EmbeddingService
+from app.knowledge_engine.vector_store import VectorStore
 
 router = APIRouter(prefix="/rfp", tags=["RFP"])
 
