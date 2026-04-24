@@ -1,31 +1,26 @@
-from sqlalchemy import Column, String, Text, Integer, JSON, DateTime, ForeignKey
-from sqlalchemy.orm import relationship
+import uuid
 from datetime import datetime
-
+from sqlalchemy import Column, String, DateTime, Text, ForeignKey, Integer, JSON
+from sqlalchemy.orm import relationship
 from app.db.base import Base
 
 
-# ---------------------------
-# RFP SESSION
-# ---------------------------
 class RFPSession(Base):
     __tablename__ = "rfp_sessions"
 
-    rfp_id = Column(String, primary_key=True)
+    rfp_id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     client_name = Column(String, nullable=False)
     deadline = Column(DateTime, nullable=False)
     status = Column(String, default="draft")
+    created_at = Column(DateTime, default=datetime.utcnow)
 
     questions = relationship("Question", back_populates="rfp")
 
 
-# ---------------------------
-# QUESTION
-# ---------------------------
 class Question(Base):
     __tablename__ = "questions"
 
-    id = Column(String, primary_key=True)
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     rfp_id = Column(String, ForeignKey("rfp_sessions.rfp_id"))
 
     question_text = Column(Text, nullable=False)
@@ -35,15 +30,11 @@ class Question(Base):
     drafts = relationship("Draft", back_populates="question")
 
 
-# ---------------------------
-# DRAFT
-# ---------------------------
 class Draft(Base):
     __tablename__ = "drafts"
 
-    draft_id = Column(String, primary_key=True)
-
-    rfp_id = Column(String)  # keep if used elsewhere
+    draft_id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    rfp_id = Column(String)
     question_id = Column(String, ForeignKey("questions.id"))
 
     answer_text = Column(Text)

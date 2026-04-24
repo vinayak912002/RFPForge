@@ -1,5 +1,6 @@
 from app.llm.client import generate_response
-from app.knowledge_engine.prompting import build_draft_prompt
+from app.knowledge_engine.prompting import build_rfp_prompt
+
 
 question = "What encryption standard do you use?"
 
@@ -8,7 +9,8 @@ context = [
     "TLS 1.3 is used for secure communication."
 ]
 
-prompt = build_draft_prompt(question, context)
+
+prompt = build_rfp_prompt(question, context)
 
 response = generate_response(prompt)
 

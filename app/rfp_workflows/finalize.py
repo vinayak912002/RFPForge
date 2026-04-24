@@ -10,6 +10,7 @@ def finalize_rfp(db: Session, rfp_id: str):
 
     if not drafts:
         return {
+            "rfp_id": rfp_id,
             "message": "No drafts found"
         }
 
