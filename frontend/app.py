@@ -1,248 +1,218 @@
 import streamlit as st
+import requests
 import datetime
-import uuid
-import pandas as pd
-import time
-from typing import List
-from dataclasses import dataclass
-from docx import Document
 from pypdf import PdfReader
 
 # -----------------------------
-# PAGE CONFIG (MUST BE FIRST)
+# CONFIG
 # -----------------------------
+
 st.set_page_config(page_title="RFPilot", layout="wide")
+API_URL = "http://127.0.0.1:8000"
 
 # -----------------------------
-# SESSION STATE INIT
+# SESSION STATE
 # -----------------------------
-if "rfp_data" not in st.session_state:
-    st.session_state["rfp_data"] = {
-        "rfp_sessions": {},
-        "current_rfp_id": None,
-    }
 
-rfp_data = st.session_state["rfp_data"]
+if "rfp_id" not in st.session_state:
+    st.session_state.rfp_id = None
+if "questions" not in st.session_state:
+    st.session_state.questions = {}
 
 # -----------------------------
-# DATA CLASSES
+# 🔌 BACKEND CONNECTION TEST
 # -----------------------------
-@dataclass
-class Source:
-    doc_type: str
-    filename: str
-    section: str
-    snippet: str
-    full_chunk: str
 
-@dataclass
-class Draft:
-    content: str
-    sources: List[Source]
-    version: int
+st.sidebar.markdown("### 🔌 Backend Test")
+
+if st.sidebar.button("Test Backend Connection"):
+    try:
+        res = requests.get(f"{API_URL}/")
+        st.sidebar.success("✅ Connected")
+        st.sidebar.json(res.json())
+    except Exception as e:
+        st.sidebar.error(f"❌ Failed: {e}")
 
 # -----------------------------
-# STREAMING GENERATOR
+# SIDEBAR - CREATE RFP
 # -----------------------------
-def stream_generate(question):
-    full_text = f"""
-### Response to: "{question}"
 
-We use AES-256 encryption for all stored data.
-Backups are encrypted using secure key management systems.
-TLS 1.3 is enforced in transit.
-SOC2 Type II compliant.
-"""
-
-    placeholder = st.empty()
-    streamed_text = ""
-
-    for char in full_text:
-        streamed_text += char
-        placeholder.markdown(streamed_text)
-        time.sleep(0.005)
-
-    return streamed_text
-
-
-def generate_sources():
-    return [
-        Source(
-            "knowledge",
-            "Security_Policy_v2.pdf",
-            "Encryption",
-            "AES-256 encryption for data at rest",
-            "Full chunk: We use AES-256 encryption with CMK management and key rotation."
-        ),
-        Source(
-            "knowledge",
-            "Compliance_Doc.pdf",
-            "Certifications",
-            "SOC2 Type II Certified",
-            "Full chunk: Our organization maintains SOC2 Type II certification with annual audits."
-        )
-    ]
-
-# -----------------------------
-# FILE PARSING
-# -----------------------------
-def extract_questions(text):
-    lines = text.split("\n")
-    questions = []
-    for line in lines:
-        line = line.strip()
-        if len(line) > 20 and (
-            line.endswith("?")
-            or line.lower().startswith(("describe", "what", "how", "provide", "explain"))
-        ):
-            questions.append(line)
-    return questions
-
-
-def parse_docx(file):
-    doc = Document(file)
-    text = "\n".join([p.text for p in doc.paragraphs])
-    return extract_questions(text)
-
-
-def parse_pdf(file):
-    reader = PdfReader(file)
-    text = ""
-    for page in reader.pages:
-        if page.extract_text():
-            text += page.extract_text()
-    return extract_questions(text)
-
-
-def parse_excel(file):
-    df = pd.read_excel(file)
-    questions = []
-    for col in df.columns:
-        for val in df[col]:
-            if isinstance(val, str) and len(val) > 20:
-                questions.append(val)
-    return questions
-
-# -----------------------------
-# SIDEBAR
-# -----------------------------
 with st.sidebar:
     st.title("🚀 RFPilot")
 
     client = st.text_input("Client Name")
     deadline = st.date_input("Deadline", value=datetime.date.today())
 
-    if st.button("Create RFP", type="primary"):
+    if st.button("Create RFP"):
         if client:
-            rfp_id = str(uuid.uuid4())[:8]
-            rfp_data["rfp_sessions"][rfp_id] = {
-                "client": client,
-                "deadline": str(deadline),
-                "questions": {}
-            }
-            rfp_data["current_rfp_id"] = rfp_id
-            st.success("RFP Created")
+            try:
+                res = requests.post(
+                    f"{API_URL}/rfp",
+                    data={
+                        "client_name": client,
+                        "deadline": str(deadline)
+                    }
+                )
+                data = res.json()
 
-    st.markdown("### Existing RFPs")
-    for r_id, info in rfp_data["rfp_sessions"].items():
-        if st.button(info["client"], key=r_id):
-            rfp_data["current_rfp_id"] = r_id
+                st.session_state.rfp_id = data.get("rfp_id") or data.get("id")
+                st.session_state.questions = {}
+
+                st.success("RFP Created!")
+                st.json(data)
+
+            except Exception as e:
+                st.error(f"Error: {e}")
+
+    if st.button("Reset RFP"):
+        st.session_state.rfp_id = None
+        st.session_state.questions = {}
 
 # -----------------------------
-# MAIN
+# MAIN UI
 # -----------------------------
+
 st.title("AI-Powered RFP Automation")
 
-rfp_id = rfp_data.get("current_rfp_id")
+rfp_id = st.session_state.rfp_id
 
 if not rfp_id:
-    st.info("Create or select an RFP from sidebar.")
-else:
-    rfp = rfp_data["rfp_sessions"][rfp_id]
+    st.info("Create an RFP first")
+    st.stop()
 
-    col1, col2 = st.columns(2)
-    col1.metric("Client", rfp["client"])
-    col2.metric("Deadline", rfp["deadline"])
+st.success(f"Active RFP ID: {rfp_id}")
 
-    st.markdown("---")
+# -----------------------------
+# 📄 FILE UPLOAD + EXTRACTION
+# -----------------------------
 
-    # FILE UPLOAD
-    uploaded_file = st.file_uploader("Upload RFP (PDF, DOCX, XLSX)")
+st.subheader("📄 Upload RFP (PDF)")
 
-    if uploaded_file:
-        questions = []
+uploaded_file = st.file_uploader("Upload RFP file", type=["pdf"])
 
-        if uploaded_file.name.endswith(".pdf"):
-            questions = parse_pdf(uploaded_file)
-        elif uploaded_file.name.endswith(".docx"):
-            questions = parse_docx(uploaded_file)
-        elif uploaded_file.name.endswith(".xlsx"):
-            questions = parse_excel(uploaded_file)
+def extract_questions_from_pdf(file):
+    reader = PdfReader(file)
+    text = ""
+
+    for page in reader.pages:
+        if page.extract_text():
+            text += page.extract_text()
+
+    lines = text.split("\n")
+    questions = []
+
+    for line in lines:
+        line = line.strip()
+        if len(line) > 20 and "?" in line:
+            questions.append(line)
+
+    return questions
+
+if uploaded_file:
+    st.success("File uploaded!")
+
+    if st.button("Extract Questions from File"):
+        questions = extract_questions_from_pdf(uploaded_file)
+
+        if not questions:
+            st.warning("No questions detected")
+        else:
+            st.write("Extracted Questions:", questions)
 
         for q in questions:
-            q_id = str(uuid.uuid4())[:8]
-            rfp["questions"][q_id] = {"question": q, "drafts": []}
-
-        st.success(f"{len(questions)} questions extracted.")
-
-    st.markdown("---")
-    st.header("Questions")
-
-    for q_id, q_data in rfp["questions"].items():
-
-        with st.expander(q_data["question"][:120]):
-
-            # Generate draft
-            if not q_data["drafts"]:
-                if st.button("Generate Response", key=f"gen_{q_id}"):
-                    content = stream_generate(q_data["question"])
-                    draft = Draft(
-                        content=content,
-                        sources=generate_sources(),
-                        version=1
-                    )
-                    q_data["drafts"].append(draft)
-
-            # If draft exists
-            if q_data["drafts"]:
-                latest = q_data["drafts"][-1]
-
-                edited = st.text_area(
-                    "Draft",
-                    value=latest.content,
-                    height=250,
-                    key=f"text_{q_id}"
+            try:
+                res = requests.post(
+                    f"{API_URL}/rfp/{rfp_id}/question",
+                    json={"question_text": q}
                 )
 
-                col1, col2 = st.columns(2)
+                data = res.json()
+                q_id = data.get("question_id") or data.get("id")
 
-                if col1.button("💾 Save", key=f"save_{q_id}"):
-                    latest.content = edited
-                    st.success("Saved successfully.")
+                st.session_state.questions[q_id] = {
+                    "text": q,
+                    "answer": None
+                }
 
-                if col2.button("🔄 Regenerate", key=f"regen_{q_id}"):
-                    content = stream_generate(q_data["question"])
-                    new_draft = Draft(
-                        content=content,
-                        sources=generate_sources(),
-                        version=latest.version + 1
-                    )
-                    q_data["drafts"].append(new_draft)
+            except Exception as e:
+                st.error(f"Error adding question: {e}")
 
-                # -----------------------------
-                # SOURCES PANEL (NO NESTING)
-                # -----------------------------
-                st.markdown("### 📚 Sources")
+        st.success("Questions added to backend!")
 
-                for i, src in enumerate(latest.sources):
+# -----------------------------
+# MANUAL QUESTION INPUT
+# -----------------------------
 
-                    st.markdown(f"**{src.filename} – {src.section}**")
-                    st.write(src.snippet)
+st.subheader("✍️ Add Question Manually")
 
-                    if st.button("View Full Chunk", key=f"chunk_{q_id}_{i}"):
-                        st.info(src.full_chunk)
+question_text = st.text_input("Enter a question")
 
-                    st.markdown("---")
+if st.button("Add Question"):
+    try:
+        res = requests.post(
+            f"{API_URL}/rfp/{rfp_id}/question",
+            json={"question_text": question_text}
+        )
 
-    st.markdown("---")
-    st.caption("Streaming • Editable • Versioned • Expandable • Stable")
+        data = res.json()
+        q_id = data.get("question_id") or data.get("id")
+
+        st.session_state.questions[q_id] = {
+            "text": question_text,
+            "answer": None
+        }
+
+        st.success("Question added!")
+        st.json(data)
+
+    except Exception as e:
+        st.error(f"Error: {e}")
+
+# -----------------------------
+# SHOW QUESTIONS
+# -----------------------------
+
+st.header("Questions")
+
+for q_id, q_data in st.session_state.questions.items():
+
+    with st.expander(q_data["text"]):
+
+        # -------- GENERATE --------
+        if st.button("Generate Response", key=f"gen_{q_id}"):
+            try:
+                res = requests.post(
+                    f"{API_URL}/rfp/{rfp_id}/question/{q_id}/draft"
+                )
+
+                data = res.json()
+                st.session_state.questions[q_id]["answer"] = data.get("answer_text", "No response")
+
+                st.json(data)
+
+            except Exception as e:
+                st.error(f"Error: {e}")
+
+        # -------- DISPLAY --------
+        if q_data["answer"]:
+            st.text_area(
+                "Answer",
+                value=q_data["answer"],
+                height=200,
+                key=f"ans_{q_id}"
+            )
+
+        # -------- REGENERATE --------
+        if st.button("Regenerate", key=f"regen_{q_id}"):
+            try:
+                res = requests.post(
+                    f"{API_URL}/question/{q_id}/regenerate"
+                )
+
+                data = res.json()
+                st.session_state.questions[q_id]["answer"] = data.get("answer_text", "No response")
+
+                st.json(data)
+
+            except Exception as e:
+                st.error(f"Error: {e}")
