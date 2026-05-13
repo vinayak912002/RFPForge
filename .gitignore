@@ -11,3 +11,6 @@ venv/
 rfp.db
 embedding_cache/
 graphify-out/
+rfp.db
+chroma_db/
+test_chroma_db/

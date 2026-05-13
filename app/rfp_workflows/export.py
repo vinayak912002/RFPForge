@@ -1,13 +1,13 @@
 # DOCX / PDF export
 from docx import Document
 import pandas as pd
-from app.rfp_workflows.models import Draft
+from app.rfp_workflows.models import Draft, Question
 
 
 def export_to_word(db, rfp_id: str):
 
-    drafts = db.query(Draft).filter(
-        Draft.rfp_id == rfp_id,
+    drafts = db.query(Draft).join(Question).filter(
+        Question.rfp_id == rfp_id,
         Draft.status == "final"
     ).all()
 
@@ -34,8 +34,8 @@ def export_to_word(db, rfp_id: str):
 
 def export_to_excel(db, rfp_id: str):
 
-    drafts = db.query(Draft).filter(
-        Draft.rfp_id == rfp_id,
+    drafts = db.query(Draft).join(Question).filter(
+        Question.rfp_id == rfp_id,
         Draft.status == "final"
     ).all()
 

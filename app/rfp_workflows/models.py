@@ -43,5 +43,6 @@ class Draft(Base):
 
     version = Column(Integer, default=1)
     status = Column(String, default="draft")
+    edited_by = Column(String)
 
     question = relationship("Question", back_populates="drafts")

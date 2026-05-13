@@ -1,26 +1,16 @@
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
-from datetime import datetime
-from typing import Optional
-
-from app.rfp_workflows.models import Base
-from app.rfp_workflows.finalize import finalize_rfp
-from app.rfp_workflows.export import export_to_word, export_to_excel
-from app.rfp_workflows import sessions, drafts, finalize
-
-
-from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from datetime import datetime
 from typing import Optional
-from app.rfp_workflows.drafts import generate_first_draft
-from app.knowledge_engine.llm import LLMService
-from app.knowledge_engine.retrieval import RetrievalService
-from app.knowledge_engine.embeddings import EmbeddingService
-from app.knowledge_engine.vector_store import VectorStore
 
-from app.db.dependencies import get_db
+from app.rfp_workflows.finalize import finalize_rfp
+from app.rfp_workflows.export import export_to_word, export_to_excel
+
+from app.dependencies import (
+    get_db, 
+    get_retrieval_service, 
+    get_llm_service
+)
 from app.rfp_workflows.storage import parse_file
 from app.rfp_workflows.sessions import (
     create_rfp_session,
@@ -39,32 +29,25 @@ from app.schemas.rfp import (
     DraftResponse,
     QuestionListResponse
 )
+from app.utils.logging import get_logger
+
+logger = get_logger("api.rfp")
 
 # Importing existing logic from rfp_workflows
 from app.rfp_workflows import sessions, drafts, finalize
+from app.rfp_workflows.drafts import generate_first_draft
 from app.knowledge_engine.llm import LLMService
 from app.knowledge_engine.retrieval import RetrievalService
 from app.knowledge_engine.embeddings import EmbeddingService
 from app.knowledge_engine.vector_store import VectorStore
 
-DATABASE_URL = "sqlite:///./rfp.db"
-
-engine = create_engine(
-    DATABASE_URL,
-    connect_args={"check_same_thread": False})
-  
-SessionLocal = sessionmaker(bind=engine)
-
-SessionLocal = sessionmaker(bind=engine)
-Base.metadata.create_all(bind=engine)
-
-router = APIRouter()
+router = APIRouter(prefix="/rfp", tags=["RFP"])
 
 
 # ---------------------------
 # FINALIZE RFP
 # ---------------------------
-@router.post("/rfp/{rfp_id}/finalize")
+@router.post("/{rfp_id}/finalize")
 def finalize(rfp_id: str, db: Session = Depends(get_db)):
     return finalize_rfp(db, rfp_id)
 
@@ -72,7 +55,7 @@ def finalize(rfp_id: str, db: Session = Depends(get_db)):
 # ---------------------------
 # EXPORT WORD
 # ---------------------------
-@router.get("/rfp/{rfp_id}/export/word")
+@router.get("/{rfp_id}/export/word")
 def export_word(rfp_id: str, db: Session = Depends(get_db)):
 
     file_path = export_to_word(db, rfp_id)
@@ -86,7 +69,7 @@ def export_word(rfp_id: str, db: Session = Depends(get_db)):
 # ---------------------------
 # EXPORT EXCEL
 # ---------------------------
-@router.get("/rfp/{rfp_id}/export/excel")
+@router.get("/{rfp_id}/export/excel")
 def export_excel(rfp_id: str, db: Session = Depends(get_db)):
 
     file_path = export_to_excel(db, rfp_id)
@@ -100,29 +83,35 @@ def export_excel(rfp_id: str, db: Session = Depends(get_db)):
 # ---------------------------
 # CREATE RFP
 # ---------------------------
-@router.post("/rfp", response_model=RFPSessionResponse)
+@router.post("", response_model=RFPSessionResponse)
 def create_rfp(
     client_name: str = Form(...),
     deadline: str = Form(...),
     rfp_file: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db)
 ):
+    logger.info(f"Creating new RFP session for client: {client_name}")
     try:
         deadline_dt = datetime.fromisoformat(deadline)
     except ValueError:
+        logger.error(f"Invalid deadline format received: {deadline}")
         raise HTTPException(status_code=400, detail="Invalid deadline format")
 
     rfp = create_rfp_session(db, client_name, deadline_dt)
+    logger.info(f"RFP session created with ID: {rfp.rfp_id}")
 
     questions = []
 
     if rfp_file:
+        logger.info(f"Parsing uploaded file: {rfp_file.filename}")
         try:
             questions = parse_file(rfp_file)
             if questions:
+                logger.info(f"Extracted {len(questions)} questions from file.")
                 add_questions(db, rfp.rfp_id, questions)
-        except Exception:
-            raise HTTPException(status_code=500, detail="File parsing failed")
+        except Exception as e:
+            logger.error(f"File parsing failed for {rfp_file.filename}: {e}")
+            raise HTTPException(status_code=500, detail=f"File parsing failed: {str(e)}")
 
     return RFPSessionResponse(
         rfp_id=rfp.rfp_id,
@@ -134,7 +123,7 @@ def create_rfp(
 # -----------------------
 # GET RFP SUMMARY
 # -----------------------
-@router.get("/rfp/{rfp_id}", response_model=RFPSessionResponse)
+@router.get("/{rfp_id}", response_model=RFPSessionResponse)
 def get_rfp_summary(rfp_id: str, db: Session = Depends(get_db)):
     rfp = get_rfp(db, rfp_id)
 
@@ -155,7 +144,7 @@ def get_rfp_summary(rfp_id: str, db: Session = Depends(get_db)):
 # -----------------------
 # GET QUESTIONS
 # -----------------------
-@router.get("/rfp/{rfp_id}/questions", response_model=QuestionListResponse)
+@router.get("/{rfp_id}/questions", response_model=QuestionListResponse)
 def list_questions(rfp_id: str, db: Session = Depends(get_db)):
     questions = get_questions(db, rfp_id)
 
@@ -175,7 +164,7 @@ def list_questions(rfp_id: str, db: Session = Depends(get_db)):
 # -----------------------
 # ADD SINGLE QUESTION
 # -----------------------
-@router.post("/rfp/{rfp_id}/question", response_model=QuestionResponse)
+@router.post("/{rfp_id}/question", response_model=QuestionResponse)
 def add_single_question(
     rfp_id: str,
     request: QuestionCreateRequest,
@@ -199,22 +188,15 @@ def add_single_question(
 # -----------------------
 # GENERATE DRAFT
 # -----------------------
-@router.post("/rfp/{rfp_id}/question/{question_id}/draft")
+@router.post("/{rfp_id}/question/{question_id}/draft")
 def generate_draft(
     rfp_id: str,
     question_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    retrieval_service: RetrievalService = Depends(get_retrieval_service),
+    llm_service: LLMService = Depends(get_llm_service)
 ):
-
-    embedding_service = EmbeddingService()
-    vector_store = VectorStore()
-
-    retrieval_service = RetrievalService(
-        embedding_service=embedding_service,
-        vector_store_service=vector_store
-    )
-
-    llm_service = LLMService()
+    logger.info(f"Generating draft for RFP {rfp_id}, Question {question_id}")
 
     draft = generate_first_draft(
         db=db,
@@ -222,7 +204,8 @@ def generate_draft(
         retrieval_service=retrieval_service,
         llm_service=llm_service
     )
-
+    
+    logger.info(f"Draft generated successfully: ID {draft.draft_id}")
     return {
         "draft_id": draft.draft_id,
         "question_id": draft.question_id,

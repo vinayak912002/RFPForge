@@ -4,7 +4,7 @@ OLLAMA_URL = "http://localhost:11434/api/generate"
 
 
 class LLMService:
-    def __init__(self, model="llama3.2:3b-instruct-q4_0 "):
+    def __init__(self, model="llama3.2:3b-instruct-q4_0"):
         self.model = model
 
     def generate(self, prompt: str) -> str:

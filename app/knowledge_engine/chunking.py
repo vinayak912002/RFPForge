@@ -12,6 +12,9 @@ import uuid
 from typing import List
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from app.utils.logging import get_logger
+
+logger = get_logger("knowledge.chunking")
 
 # ==========================================================
 # CONFIGURATION
@@ -29,6 +32,7 @@ def chunk_documents(
         chunk_size: int = DEFAULT_CHUNK_SIZE,
         chunk_overlap: int = DEFAULT_CHUNK_OVERLAP
 ) -> List[Document]:
+    logger.info(f"Starting chunking process for {len(documents)} documents.")
     
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size = chunk_size,
@@ -38,11 +42,13 @@ def chunk_documents(
 
     all_chunks = []
 
-    for doc in documents:
+    for i, doc in enumerate(documents):
         cleaned_text = clean_text(doc.page_content)
         structure_score = compute_structure_score(cleaned_text)
+        logger.info(f"Processing doc {i+1}/{len(documents)} | Structure Score: {structure_score}")
 
         if structure_score > 20:
+            logger.info(f"Doc {i+1}: Selecting STRUCTURED chunking mode.")
             chunks = structured_chunking(
                 cleaned_text,
                 doc.metadata,
@@ -50,6 +56,7 @@ def chunk_documents(
             )
 
         elif structure_score > 8:
+            logger.info(f"Doc {i+1}: Selecting SEMI-STRUCTURED chunking mode.")
             chunks = semi_structured_chunking(
                 cleaned_text,
                 doc.metadata,
@@ -57,14 +64,17 @@ def chunk_documents(
             )
         
         else:
+            logger.info(f"Doc {i+1}: Selecting UNSTRUCTURED chunking mode.")
             chunks = unstructured_chunking(
                 cleaned_text,
                 doc.metadata,
                 text_splitter
             )
         
+        logger.info(f"Doc {i+1}: Generated {len(chunks)} chunks.")
         all_chunks.extend(chunks)
 
+    logger.info(f"Total chunks generated: {len(all_chunks)}")
     return all_chunks
 
 
@@ -98,7 +108,7 @@ def clean_text(text: str) -> str:
 
 def compute_structure_score(text: str) -> int:
 
-    clause_matches = len(re.findall(r"\b\d{1,2}\.\d{1,2}(\.\d{1,2})*\b", text))
+    clause_matches = len(re.findall(r"\b\d{1,2}\.\d{1,2}(?:\.\d{1,2})*\b", text))
     uppercase_headers = len(re.findall(r"\n[A-Z][A-Z\s]{4,}\n", text))
     bullet_points = len(re.findall(r"\n\s*[-•]\s+", text))
     colon_headers = len(re.findall(r"(?m)^(?:[ \t]*)(([A-Z][A-Z\s]{3,}))\s*$", text))
@@ -127,7 +137,7 @@ def structured_chunking(text, metadata, text_splitter):
     sections = split_by_headers(text)
     chunked_docs = []
 
-    clause_pattern = r"\n\d+\.\d+(\.\d+)*[^\n]*"
+    clause_pattern = r"\n\d+\.\d+(?:\.\d+)*[^\n]*"
 
     for section_title, section_content in sections:
 
@@ -258,7 +268,7 @@ def split_by_headers(text):
 
 def build_metadata(base_metadata, section_title, content):
 
-    clause_numbers = re.findall(r"\b\d+\.\d+(\.\d+)*\b", content)
+    clause_numbers = re.findall(r"\b\d+\.\d+(?:\.\d+)*\b", content)
 
     metadata={
         **base_metadata,
@@ -269,7 +279,8 @@ def build_metadata(base_metadata, section_title, content):
         metadata["section_title"] = section_title
     
     if clause_numbers:
-        metadata["clauses"] = clause_numbers
+        # ChromaDB metadata must be strings, numbers, or booleans (no lists)
+        metadata["clauses"] = ", ".join([str(c) for c in clause_numbers if c])
     
     return metadata
     # return {

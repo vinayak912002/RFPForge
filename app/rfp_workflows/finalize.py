@@ -1,10 +1,12 @@
 from sqlalchemy.orm import Session
-from app.rfp_workflows.models import Draft
+from app.rfp_workflows.models import Draft, Question
 
 
 def finalize_rfp(db: Session, rfp_id: str):
 
-    drafts = db.query(Draft).filter(Draft.rfp_id == rfp_id).all()
+    drafts = db.query(Draft).join(Question).filter(
+        Question.rfp_id == rfp_id
+    ).all()
 
     if not drafts:
         return {

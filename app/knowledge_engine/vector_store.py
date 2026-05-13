@@ -1,6 +1,6 @@
 # Chroma / FAISS wrapper
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict
 
 import chromadb
@@ -14,17 +14,10 @@ class VectorStore:
     def __init__(self, persist_directory: str = "./chroma_db"):
         """
         Initialize persistent ChromaDB client
-        Schema:
-            id
-            embedding
-            document text
-            metadata
         """
-        self.client = chromadb.Client(
-            Settings(
-                persist_directory=persist_directory,
-                anonymized_telemetry=False
-            )
+        self.client = chromadb.PersistentClient(
+            path=persist_directory,
+            settings=Settings(anonymized_telemetry=False)
         )
         self.collection_name = "rfp_knowledge"
 
@@ -48,7 +41,7 @@ class VectorStore:
     ):
         collection = self.get_collection(collection_name)
 
-        ids = [f"id_{i}_{datetime.utcnow().timestamp()}" for i in range(len(documents))]
+        ids = [f"id_{i}_{datetime.now(timezone.utc).timestamp()}" for i in range(len(documents))]
 
         collection.add(
             ids=ids,
@@ -114,7 +107,7 @@ class VectorStore:
         return {
             "vector_count": total_vectors,
             "avg_doc_length": avg_doc_length,
-            "last_checked": str(datetime.utcnow())
+            "last_checked": str(datetime.now(timezone.utc))
         }
 
     # BACKUP TO JSON
