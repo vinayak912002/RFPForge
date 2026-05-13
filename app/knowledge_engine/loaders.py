@@ -14,6 +14,7 @@ Provides:
 
 import os
 import logging
+print("CURRENT WORKING DIR:", os.getcwd())
 from typing import List
 
 from langchain_community.document_loaders import (
@@ -133,3 +134,5 @@ def load_directory(folder_path: str) -> List[Document]:
     logging.info(f"Total documents loaded: {len(all_documents)}")
     return all_documents
 
+# docs =load_document("E:\\vinayak\\RFPForge\\data\\knowledge_docs\\RFP_MAPP10022014.pdf")
+# print(docs[10])  
