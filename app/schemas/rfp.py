@@ -11,7 +11,6 @@ class RFPSessionCreateRequest(BaseModel):
 
 
 class QuestionCreateRequest(BaseModel):
-    rfp_id: str
     question_text: str
 
 
