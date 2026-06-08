@@ -65,6 +65,9 @@ Start the FastAPI server using Uvicorn:
 uvicorn app.main:app --reload
 ```
 
+```bash
+Streamlit run frontend/app.py
+```
 The application will be accessible at:
 *   **API Base URL**: `http://127.0.0.1:8000`
 *   **Interactive API Docs (Swagger UI)**: `http://127.0.0.1:8000/docs`
