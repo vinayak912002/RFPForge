@@ -17,7 +17,8 @@ def generate_first_draft(db: Session, question_id: str, retrieval_service, llm_s
         raise ValueError("Question not found")
 
     question_text = question.question_text
-    logger.info(f"Generating draft for question: '{question_text[:50]}...'")
+    display_text = question_text if len(question_text) <= 120 else question_text[:120] + "..."
+    logger.info(f"Generating draft for question: '{display_text}'")
 
     # 2. Retrieve context
     logger.info("Step 1: Retrieving relevant context from vector store...")

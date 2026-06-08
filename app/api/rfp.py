@@ -88,7 +88,8 @@ def create_rfp(
     client_name: str = Form(...),
     deadline: str = Form(...),
     rfp_file: Optional[UploadFile] = File(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    llm_service: LLMService = Depends(get_llm_service)
 ):
     logger.info(f"Creating new RFP session for client: {client_name}")
     try:
@@ -105,7 +106,7 @@ def create_rfp(
     if rfp_file:
         logger.info(f"Parsing uploaded file: {rfp_file.filename}")
         try:
-            questions = parse_file(rfp_file)
+            questions = parse_file(rfp_file, llm_service=llm_service)
             if questions:
                 logger.info(f"Extracted {len(questions)} questions from file.")
                 add_questions(db, rfp.rfp_id, questions)
@@ -237,8 +238,10 @@ def save_manual_draft(
 # REGENERATE AI RESPONSE
 # ---------------------------
 @router.post("/question/{question_id}/regenerate", response_model=DraftResponse)
+@router.post("/{rfp_id}/question/{question_id}/regenerate", response_model=DraftResponse)
 def regenerate_response(
     question_id: str,
+    rfp_id: str | None = None,
     db: Session = Depends(get_db)
 ):
     # Initialize RAG Services
